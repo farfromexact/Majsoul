@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Majsoul Helper Install</title>
+    <style>
+      body {
+        margin: 0;
+        font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #202124;
+        background: #f8fafd;
+      }
+      main {
+        max-width: 760px;
+        margin: 48px auto;
+        padding: 0 20px;
+      }
+      h1 {
+        font-size: 28px;
+        margin: 0 0 12px;
+      }
+      .panel {
+        border: 1px solid #d5d8dc;
+        border-radius: 8px;
+        background: #fff;
+        padding: 18px;
+      }
+      a.button {
+        display: inline-block;
+        margin: 10px 0;
+        padding: 8px 12px;
+        border-radius: 6px;
+        color: #fff;
+        background: #1967d2;
+        text-decoration: none;
+        font-weight: 650;
+      }
+      code {
+        background: #eef2f7;
+        padding: 2px 5px;
+        border-radius: 4px;
+      }
+      li {
+        margin: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Majsoul Helper MVP</h1>
+      <div class="panel">
+        <p>Install or inspect the generated Tampermonkey userscript.</p>
+        <p><a class="button" href="./majsoul-helper.user.js">Open userscript</a></p>
+        <p><a class="button" href="./smoke.html">Open local smoke test</a></p>
+        <p>If the browser does not hand this link to Tampermonkey, open the file and paste its contents into a new Tampermonkey script.</p>
+        <ul>
+          <li>No auto discard.</li>
+          <li>No click or keyboard automation.</li>
+          <li>No WebSocket payload mutation.</li>
+          <li>Realtime advice is off by default and must be enabled manually.</li>
+        </ul>
+        <p>After editing source files, run <code>npm run build</code> and <code>npm run smoke</code> before installing again.</p>
+        <h2>Local smoke test</h2>
+        <p>Open <code>smoke.html</code> and click <code>Emit sample traffic</code> to confirm the generated script can mount the overlay, hook a page WebSocket, parse a local round/draw/discard sample, update the live gate, and export a capture before using a real game page.</p>
+        <h2>Before real-page sampling</h2>
+        <ol>
+          <li>Open Mahjong Soul and confirm the overlay appears.</li>
+          <li>Click <code>Self-test</code> in the debug panel and confirm it reports <code>Self-test: ok</code>.</li>
+          <li>Confirm the debug panel shows <code>Install: installed</code>, hook diagnostics, and a non-zero socket count after joining a table.</li>
+          <li>Watch the <code>MVP gate</code> line. If it lists missing items, collect from the start of a round or follow the missing field names before trusting the state.</li>
+          <li>Watch the <code>Real-page preflight</code> line. It should reach <code>15/15</code> before export, including the safety snapshot checks, then run the displayed <code>capture-doctor</code> command before the final real-page gate.</li>
+          <li>Keep realtime advice off unless explicitly testing training-mode analysis; acceptance samples require <code>liveSafetySettings</code> to show realtime advice off, manual input clear, and automation/message mutation disabled.</li>
+          <li>Use <code>Download capture</code>, then run <code>npm run import-capture -- path/to/majsoul-helper-capture.json</code>, or use <code>Copy capture</code> and save the JSON locally. If import prints <code>Import notice</code>, the file was copied but still lacks one or more real-page proof fields, so continue with the doctor/gate output before treating it as accepted. Then run <code>npm run capture-doctor -- captures/capture-real.json</code>, <code>npm run replay -- captures/capture-real.json</code>, and <code>npm run real-page-gate</code>.</li>
+        </ol>
+        <p>Detailed sampling checks are in <code>docs/real-page-sampling.md</code>.</p>
+      </div>
+    </main>
+  </body>
+</html>

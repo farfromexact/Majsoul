@@ -1,0 +1,23 @@
+{
+  "name": "majsoul-helper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "audit": "node scripts/goal-audit.mjs",
+    "build": "node scripts/build-userscript.mjs",
+    "capture-doctor": "node scripts/capture-doctor.mjs",
+    "import-capture": "node scripts/import-capture.mjs",
+    "mvp-check": "node scripts/mvp-check.mjs",
+    "real-page-gate": "node scripts/real-page-gate.mjs",
+    "replay": "node scripts/replay-capture.mjs",
+    "smoke": "node scripts/smoke-check.mjs",
+    "test": "vitest run",
+    "validate-captures": "node scripts/validate-captures.mjs",
+    "verify": "node scripts/verify.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "vitest": "^1.6.1"
+  }
+}

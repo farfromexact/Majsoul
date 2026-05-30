@@ -1,0 +1,42 @@
+{
+  "exportedAt": "2026-05-24T00:00:00.000Z",
+  "formatVersion": 1,
+  "events": [
+    {
+      "type": "raw_message",
+      "source": "ws_in",
+      "ts": 3,
+      "payload": {
+        "kind": "Uint8Array",
+        "length": 53,
+        "preview": "Uint8Array(53)",
+        "sample": "01 0a 13 2e 6c 71 2e 41 63 74 69 6f 6e 50 72 6f 74 6f 74 79 70 65 12 1d 08 0b 12 11 41 63 74 69 6f 6e 44 69 73 63 61 72 64 54 69 6c 65 1a 06 08 01 12 02 39 73",
+        "truncated": false
+      }
+    },
+    {
+      "type": "raw_message",
+      "source": "ws_in",
+      "ts": 2,
+      "payload": {
+        "kind": "Uint8Array",
+        "length": 52,
+        "preview": "Uint8Array(52)",
+        "sample": "01 0a 13 2e 6c 71 2e 41 63 74 69 6f 6e 50 72 6f 74 6f 74 79 70 65 12 1c 08 0a 12 0e 41 63 74 69 6f 6e 44 65 61 6c 54 69 6c 65 1a 08 08 00 12 02 35 6d 18 37",
+        "truncated": false
+      }
+    },
+    {
+      "type": "raw_message",
+      "source": "ws_in",
+      "ts": 1,
+      "payload": {
+        "kind": "text",
+        "length": 215,
+        "preview": "{\"name\":\"round_start\",\"data\":{\"round\":\"0-1\",\"chang\":0,\"ju\":1,\"honba\":0,\"riichiSticks\":0,\"tiles\":[\"1m\",\"2m\",\"3m\",\"4m\",\"5m\",\"6m\",\"7m\",\"8m\",\"9m\",\"1p\",\"2p\",\"3p\",\"1z\"],\"doraIndicators\":[\"4p\"],\"scores\":[25000,25000,25000,25000],\"leftTileCount\":70}}",
+        "sample": "{\"name\":\"round_start\",\"data\":{\"round\":\"0-1\",\"chang\":0,\"ju\":1,\"honba\":0,\"riichiSticks\":0,\"tiles\":[\"1m\",\"2m\",\"3m\",\"4m\",\"5m\",\"6m\",\"7m\",\"8m\",\"9m\",\"1p\",\"2p\",\"3p\",\"1z\"],\"doraIndicators\":[\"4p\"],\"scores\":[25000,25000,25000,25000],\"leftTileCount\":70}}",
+        "truncated": false
+      }
+    }
+  ]
+}

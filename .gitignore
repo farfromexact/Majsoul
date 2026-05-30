@@ -1,0 +1,5 @@
+node_modules/
+captures/*.json
+captures/*.jsonl
+captures/*.txt
+!captures/README.md

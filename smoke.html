@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Majsoul Helper Smoke Test</title>
+    <style>
+      body {
+        margin: 0;
+        font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #202124;
+        background: #f8fafd;
+      }
+      main {
+        max-width: 760px;
+        margin: 48px auto;
+        padding: 0 20px;
+      }
+      .panel {
+        border: 1px solid #d5d8dc;
+        border-radius: 8px;
+        background: #fff;
+        padding: 18px;
+      }
+      button {
+        margin: 10px 8px 10px 0;
+        padding: 8px 12px;
+        border: 1px solid #1558b0;
+        border-radius: 6px;
+        color: #fff;
+        background: #1967d2;
+        font-weight: 650;
+        cursor: pointer;
+      }
+      code {
+        background: #eef2f7;
+        padding: 2px 5px;
+        border-radius: 4px;
+      }
+      pre {
+        overflow: auto;
+        padding: 10px;
+        background: #eef2f7;
+        border-radius: 6px;
+      }
+    </style>
+    <script>
+      class SmokeWebSocket extends EventTarget {
+        constructor(url = "wss://smoke.local/socket") {
+          super();
+          this.url = url;
+          this.binaryType = "arraybuffer";
+          SmokeWebSocket.instances.push(this);
+        }
+
+        send(data) {
+          this.lastSent = data;
+        }
+
+        receive(data) {
+          this.dispatchEvent(new MessageEvent("message", { data }));
+        }
+      }
+
+      SmokeWebSocket.instances = [];
+      SmokeWebSocket.CONNECTING = 0;
+      SmokeWebSocket.OPEN = 1;
+      SmokeWebSocket.CLOSING = 2;
+      SmokeWebSocket.CLOSED = 3;
+      window.WebSocket = SmokeWebSocket;
+    </script>
+    <script src="./majsoul-helper.user.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>Majsoul Helper Smoke Test</h1>
+      <div class="panel">
+        <p>This local page checks the helper without connecting to Mahjong Soul. It installs a fake page WebSocket before loading the generated userscript.</p>
+        <button id="emit-sample" type="button">Emit sample traffic</button>
+        <button id="show-status" type="button">Show status</button>
+        <p>Expected result after emitting traffic: the overlay debug section shows raw inbound traffic, decoded <code>ActionDealTile</code> and <code>ActionDiscardTile</code> messages, parsed <code>round_start</code>, <code>draw_tile</code>, and <code>discard_tile</code> events, and <code>MVP gate: 16/16</code>.</p>
+        <pre id="status">Ready.</pre>
+      </div>
+    </main>
+    <script>
+      const roundStartSample = JSON.stringify({
+        name: "round_start",
+        data: {
+          round: "0-1",
+          chang: 0,
+          ju: 1,
+          honba: 0,
+          riichiSticks: 0,
+          tiles: ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "1p", "2p", "3p", "1z"],
+          doraIndicators: ["4p"],
+          scores: [25000, 25000, 25000, 25000],
+          leftTileCount: 70
+        }
+      });
+
+      const drawSample = new Uint8Array([
+        0x01, 0x0a, 0x13, 0x2e, 0x6c, 0x71, 0x2e, 0x41,
+        0x63, 0x74, 0x69, 0x6f, 0x6e, 0x50, 0x72, 0x6f,
+        0x74, 0x6f, 0x74, 0x79, 0x70, 0x65, 0x12, 0x1c,
+        0x08, 0x0a, 0x12, 0x0e, 0x41, 0x63, 0x74, 0x69,
+        0x6f, 0x6e, 0x44, 0x65, 0x61, 0x6c, 0x54, 0x69,
+        0x6c, 0x65, 0x1a, 0x08, 0x08, 0x00, 0x12, 0x02,
+        0x35, 0x6d, 0x18, 0x37
+      ]);
+
+      const discardSample = new Uint8Array([
+        0x01, 0x0a, 0x13, 0x2e, 0x6c, 0x71, 0x2e, 0x41,
+        0x63, 0x74, 0x69, 0x6f, 0x6e, 0x50, 0x72, 0x6f,
+        0x74, 0x6f, 0x74, 0x79, 0x70, 0x65, 0x12, 0x1d,
+        0x08, 0x0b, 0x12, 0x11, 0x41, 0x63, 0x74, 0x69,
+        0x6f, 0x6e, 0x44, 0x69, 0x73, 0x63, 0x61, 0x72,
+        0x64, 0x54, 0x69, 0x6c, 0x65, 0x1a, 0x06, 0x08,
+        0x01, 0x12, 0x02, 0x39, 0x73
+      ]);
+
+      function helperStatus() {
+        const helper = window.__majsoulHelper;
+        return {
+          helperLoaded: Boolean(helper),
+          install: helper?.adapter.getInstallDiagnostics(),
+          eventTypes: helper?.adapter.getRecentEvents().map((event) => event.type) || [],
+          visibleState: helper?.gameState.getVisibleState()
+        };
+      }
+
+      function renderStatus() {
+        document.querySelector("#status").textContent = JSON.stringify(helperStatus(), null, 2);
+      }
+
+      document.querySelector("#emit-sample").addEventListener("click", () => {
+        const socket = new WebSocket("wss://smoke.local/socket?token=redacted");
+        socket.addEventListener("message", () => {});
+        socket.send("smoke-outbound");
+        socket.receive(roundStartSample);
+        socket.receive(drawSample);
+        socket.receive(discardSample);
+        renderStatus();
+      });
+      document.querySelector("#show-status").addEventListener("click", renderStatus);
+      renderStatus();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "exportedAt": "2026-05-24T00:00:00.000Z",
+  "formatVersion": 1,
+  "events": [
+    {
+      "type": "raw_message",
+      "source": "ws_in",
+      "ts": 1,
+      "payload": {
+        "kind": "Uint8Array",
+        "length": 55,
+        "preview": "Uint8Array(55)",
+        "sample": "01 0a 13 2e 6c 71 2e 41 63 74 69 6f 6e 50 72 6f 74 6f 74 79 70 65 12 1f 08 35 12 11 41 63 74 69 6f 6e 44 69 73 63 61 72 64 54 69 6c 65 1a 08 08 03 12 02 39 73 28 01",
+        "truncated": false
+      }
+    }
+  ]
+}
