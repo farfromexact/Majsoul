@@ -37,13 +37,13 @@ describe("built userscript runtime", () => {
     window.eval(userscript);
 
     expect(window.__majsoulHelper).toBeTruthy();
-    expect(window.__majsoulHelper.version).toBe("0.2.6");
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.6");
-    expect(window.__majsoulHelper.adapter.getInstallDiagnostics().maxEvents).toBe(500);
-    expect(window.__majsoulHelper.adapter.getInstallDiagnostics().binarySampleBytes).toBe(2048);
+    expect(window.__majsoulHelper.version).toBe("0.2.7");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.7");
+    expect(window.__majsoulHelper.adapter.getInstallDiagnostics().maxEvents).toBe(3000);
+    expect(window.__majsoulHelper.adapter.getInstallDiagnostics().binarySampleBytes).toBe(4096);
     expect(document.querySelector("#majsoul-helper-overlay")).toBeTruthy();
-    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("500");
-    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("2048");
+    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("3000");
+    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("4096");
 
     const socket = new window.WebSocket("wss://example.test/socket");
     socket.send("hello");
@@ -89,10 +89,10 @@ describe("built userscript runtime", () => {
     window.eval(userscript);
 
     expect(oldAdapter.uninstall).toHaveBeenCalledTimes(1);
-    expect(window.__majsoulHelper.version).toBe("0.2.6");
+    expect(window.__majsoulHelper.version).toBe("0.2.7");
     expect(window.__majsoulHelper.adapter).not.toBe(oldAdapter);
     expect(document.querySelectorAll("#majsoul-helper-overlay")).toHaveLength(1);
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.6");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.7");
   });
 
   it("sets the helper singleton before the DOM is ready", () => {
@@ -152,18 +152,18 @@ describe("built userscript runtime", () => {
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("Install: installed");
   });
 
-  it("boots generated userscript with stored capture configuration", () => {
+  it("upgrades stored low capture configuration in the generated userscript", () => {
     window.localStorage.setItem("majsoul-helper-config", JSON.stringify({ binarySampleBytes: 1024, captureLimit: 500 }));
     const userscript = readFileSync("majsoul-helper.user.js", "utf8");
 
     window.eval(userscript);
 
     expect(window.__majsoulHelper.adapter.getInstallDiagnostics()).toMatchObject({
-      binarySampleBytes: 1024,
-      maxEvents: 500
+      binarySampleBytes: 4096,
+      maxEvents: 3000
     });
-    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("1024");
-    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("500");
+    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("4096");
+    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("3000");
   });
 
   it("records page-decoded MessageWrapper events in the generated userscript", () => {

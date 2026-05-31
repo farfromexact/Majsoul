@@ -1,8 +1,8 @@
 import { parseBinaryEnvelope, parseBinaryMessage, parseDecodedMessage, parseReadableMessage } from "./messageParser.js";
 import { isStandardGameEvent } from "../core/events.js";
 
-const DEFAULT_BINARY_SAMPLE_BYTES = 2048;
-const DEFAULT_MAX_EVENTS = 500;
+const DEFAULT_BINARY_SAMPLE_BYTES = 4096;
+const DEFAULT_MAX_EVENTS = 3000;
 const MAX_CAPTURE_EVENTS = 3000;
 const RUNTIME_SHAPE_KEY_LIMIT = 40;
 const RUNTIME_SHAPE_ACCESSOR_LIMIT = 20;

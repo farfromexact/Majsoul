@@ -1156,13 +1156,13 @@ describe("MajsoulAdapter", () => {
   });
 
   it("uses a larger bounded default binary capture sample", () => {
-    const bytes = new Uint8Array(3000).map((_, index) => index % 256);
+    const bytes = new Uint8Array(5000).map((_, index) => index % 256);
     const adapter = new MajsoulAdapter();
     adapter.recordRaw("ws_in", bytes, "wss://example.test/socket");
 
     const event = adapter.getRecentEvents()[0];
-    expect(DEFAULT_BINARY_SAMPLE_BYTES).toBe(2048);
-    expect(event.payload.sample.split(" ")).toHaveLength(2048);
+    expect(DEFAULT_BINARY_SAMPLE_BYTES).toBe(4096);
+    expect(event.payload.sample.split(" ")).toHaveLength(4096);
     expect(event.payload.truncated).toBe(true);
   });
 

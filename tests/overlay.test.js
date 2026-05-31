@@ -12,7 +12,7 @@ class FakeAdapter extends EventTarget {
     this.events = [];
     this.installDiagnostics = {
       installed: true,
-      helperVersion: "0.2.6",
+      helperVersion: "0.2.7",
       installAttempts: 1,
       installedAt: "2026-05-25T00:00:00.000Z",
       installFailureReason: "",
@@ -42,8 +42,8 @@ class FakeAdapter extends EventTarget {
       },
       socketsCreated: 1,
       recentSocketUrls: ["wss://example.test/socket"],
-      maxEvents: 300,
-      binarySampleBytes: 2048,
+      maxEvents: 3000,
+      binarySampleBytes: 4096,
       eventBuffer: {
         maxEvents: 300,
         retainedEvents: 0,
@@ -53,7 +53,7 @@ class FakeAdapter extends EventTarget {
         droppedBeforeRetained: 0
       }
     };
-    this.maxEvents = 300;
+    this.maxEvents = 3000;
   }
 
   setPaused(paused) {
@@ -144,7 +144,7 @@ describe("Overlay", () => {
     overlay.mount();
 
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Training/review use only");
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.6");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.7");
     expect(document.querySelector('[data-action="realtime-advice"]').checked).toBe(false);
     expect(document.querySelector('[data-role="realtime-risk"]')).toBeNull();
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Enter a hand or enable realtime advice");
@@ -748,16 +748,22 @@ describe("Overlay", () => {
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("capture paused");
   });
 
-  it("restores stored capture limit and expands the adapter event buffer on mount", () => {
-    window.localStorage.setItem("majsoul-helper-config", JSON.stringify({ captureLimit: 500 }));
+  it("upgrades stored low capture config on mount", () => {
+    window.localStorage.setItem("majsoul-helper-config", JSON.stringify({ captureLimit: 500, binarySampleBytes: 2048 }));
     const adapter = new FakeAdapter();
     const overlay = new Overlay({ adapter, gameState: new GameState() });
     overlay.mount();
 
-    expect(adapter.maxEvents).toBe(500);
-    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("500");
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.6");
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 2048 bytes");
+    expect(adapter.maxEvents).toBe(3000);
+    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(4096);
+    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("3000");
+    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("4096");
+    expect(JSON.parse(window.localStorage.getItem("majsoul-helper-config"))).toMatchObject({
+      captureLimit: 3000,
+      binarySampleBytes: 4096
+    });
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.7");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 4096 bytes");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("page dispatch hooked");
   });
 
@@ -911,7 +917,7 @@ describe("Overlay", () => {
     overlay.mount();
 
     const text = document.querySelector("#majsoul-helper-overlay").textContent;
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("Install: not installed / capture running / attempts 3 / WebSocket missing / sockets 0 / sample 1024 bytes");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("Install: not installed / capture running / attempts 3 / WebSocket missing / sockets 0 / sample 4096 bytes");
     expect(document.querySelector('[data-role="hook-diagnostics"]').textContent).toContain("constructor off / statics 3 copied / 1 failed / prototype.constructor not-installed / send off / addEventListener off / removeEventListener off / onmessage off (not-installed)");
     expect(document.querySelector('[data-role="runtime-diagnostics"]').textContent).toContain("Runtime:");
     expect(text).toContain("WebSocket is not available on this page context yet.");
@@ -1001,15 +1007,15 @@ describe("Overlay", () => {
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 2048 bytes");
   });
 
-  it("restores stored binary sample byte setting on mount", () => {
+  it("upgrades stored low binary sample byte setting on mount", () => {
     window.localStorage.setItem("majsoul-helper-config", JSON.stringify({ binarySampleBytes: 2048 }));
     const adapter = new FakeAdapter();
     const overlay = new Overlay({ adapter, gameState: new GameState() });
     overlay.mount();
 
-    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(2048);
-    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("2048");
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 2048 bytes");
+    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(4096);
+    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("4096");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 4096 bytes");
   });
 
   it("renders unparsed ActionPrototype names in debug", () => {

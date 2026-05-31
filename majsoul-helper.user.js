@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.2.6
+// @version      0.2.7
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -910,8 +910,8 @@ var MajsoulHelperBundle = (() => {
   }
 
   // src/adapter/majsoulAdapter.js
-  var DEFAULT_BINARY_SAMPLE_BYTES = 2048;
-  var DEFAULT_MAX_EVENTS = 500;
+  var DEFAULT_BINARY_SAMPLE_BYTES = 4096;
+  var DEFAULT_MAX_EVENTS = 3e3;
   var MAX_CAPTURE_EVENTS = 3e3;
   var RUNTIME_SHAPE_KEY_LIMIT = 40;
   var RUNTIME_SHAPE_ACCESSOR_LIMIT = 20;
@@ -3066,8 +3066,8 @@ var MajsoulHelperBundle = (() => {
   // src/ui/overlay.js
   var STORAGE_KEY = "majsoul-helper-config";
   var OVERLAY_CAPTURE_NOTE = "Majsoul Helper capture export. Contains message summaries/samples plus liveGameState, liveDebugSummary, liveMvpGate, liveSafetySettings, and liveRealPagePreflight snapshots copied from the overlay; no messages were modified by the helper.";
-  var DEFAULT_BINARY_SAMPLE_BYTES2 = 2048;
-  var DEFAULT_CAPTURE_LIMIT = 500;
+  var DEFAULT_BINARY_SAMPLE_BYTES2 = 4096;
+  var DEFAULT_CAPTURE_LIMIT = 3e3;
   var MAX_CAPTURE_LIMIT = 3e3;
   var OVERLAY_EVENT_SHIELD_TYPES = [
     "pointerdown",
@@ -3701,13 +3701,23 @@ var MajsoulHelperBundle = (() => {
       this.captureLimitDraft = null;
       this.binarySampleBytesDraft = null;
       const config = readConfig();
-      this.captureLimit = normalizeCaptureLimit(config.captureLimit ?? adapter.maxEvents ?? DEFAULT_CAPTURE_LIMIT);
+      const storedCaptureLimit = normalizeCaptureLimit(config.captureLimit ?? DEFAULT_CAPTURE_LIMIT, DEFAULT_CAPTURE_LIMIT);
+      const adapterCaptureLimit = normalizeCaptureLimit(adapter.maxEvents ?? DEFAULT_CAPTURE_LIMIT, DEFAULT_CAPTURE_LIMIT);
+      this.captureLimit = Math.max(DEFAULT_CAPTURE_LIMIT, storedCaptureLimit, adapterCaptureLimit);
       if (typeof adapter.setMaxEvents === "function") {
         this.captureLimit = adapter.setMaxEvents(this.captureLimit);
       }
-      this.binarySampleBytes = adapter.binarySampleBytes;
-      if (config.binarySampleBytes !== void 0) {
-        this.binarySampleBytes = typeof adapter.setBinarySampleBytes === "function" ? adapter.setBinarySampleBytes(config.binarySampleBytes) : config.binarySampleBytes;
+      const storedBinarySampleBytes = normalizeBinarySampleBytes(config.binarySampleBytes ?? DEFAULT_BINARY_SAMPLE_BYTES2, DEFAULT_BINARY_SAMPLE_BYTES2);
+      const adapterBinarySampleBytes = normalizeBinarySampleBytes(adapter.binarySampleBytes ?? DEFAULT_BINARY_SAMPLE_BYTES2, DEFAULT_BINARY_SAMPLE_BYTES2);
+      this.binarySampleBytes = Math.max(DEFAULT_BINARY_SAMPLE_BYTES2, storedBinarySampleBytes, adapterBinarySampleBytes);
+      if (typeof adapter.setBinarySampleBytes === "function") {
+        this.binarySampleBytes = adapter.setBinarySampleBytes(this.binarySampleBytes);
+      }
+      if (config.captureLimit !== this.captureLimit || config.binarySampleBytes !== this.binarySampleBytes) {
+        writeConfig({
+          captureLimit: this.captureLimit,
+          binarySampleBytes: this.binarySampleBytes
+        });
       }
       this.copyError = "";
       this.copyFallbackText = "";
@@ -4186,7 +4196,12 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
-  var HELPER_VERSION = "0.2.6";
+  var HELPER_VERSION = "0.2.7";
+  function upgradedStoredNumber(value, fallback) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) return fallback;
+    return Math.max(fallback, Math.floor(number));
+  }
   function readConfig2() {
     try {
       return JSON.parse(window.localStorage.getItem(STORAGE_KEY2) || "{}");
@@ -4211,8 +4226,8 @@ var MajsoulHelperBundle = (() => {
     const config = readConfig2();
     const adapter = new MajsoulAdapter({
       helperVersion: HELPER_VERSION,
-      binarySampleBytes: config.binarySampleBytes,
-      maxEvents: config.captureLimit
+      binarySampleBytes: upgradedStoredNumber(config.binarySampleBytes, DEFAULT_BINARY_SAMPLE_BYTES),
+      maxEvents: upgradedStoredNumber(config.captureLimit, DEFAULT_MAX_EVENTS)
     });
     const gameState = new GameState();
     const helper = {

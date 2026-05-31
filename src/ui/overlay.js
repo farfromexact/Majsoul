@@ -6,8 +6,8 @@ import { overlayStyles } from "./styles.js";
 
 const STORAGE_KEY = "majsoul-helper-config";
 const OVERLAY_CAPTURE_NOTE = "Majsoul Helper capture export. Contains message summaries/samples plus liveGameState, liveDebugSummary, liveMvpGate, liveSafetySettings, and liveRealPagePreflight snapshots copied from the overlay; no messages were modified by the helper.";
-const DEFAULT_BINARY_SAMPLE_BYTES = 2048;
-const DEFAULT_CAPTURE_LIMIT = 500;
+const DEFAULT_BINARY_SAMPLE_BYTES = 4096;
+const DEFAULT_CAPTURE_LIMIT = 3000;
 const MAX_CAPTURE_LIMIT = 3000;
 const OVERLAY_EVENT_SHIELD_TYPES = [
   "pointerdown",
@@ -751,15 +751,23 @@ export class Overlay {
     this.captureLimitDraft = null;
     this.binarySampleBytesDraft = null;
     const config = readConfig();
-    this.captureLimit = normalizeCaptureLimit(config.captureLimit ?? adapter.maxEvents ?? DEFAULT_CAPTURE_LIMIT);
+    const storedCaptureLimit = normalizeCaptureLimit(config.captureLimit ?? DEFAULT_CAPTURE_LIMIT, DEFAULT_CAPTURE_LIMIT);
+    const adapterCaptureLimit = normalizeCaptureLimit(adapter.maxEvents ?? DEFAULT_CAPTURE_LIMIT, DEFAULT_CAPTURE_LIMIT);
+    this.captureLimit = Math.max(DEFAULT_CAPTURE_LIMIT, storedCaptureLimit, adapterCaptureLimit);
     if (typeof adapter.setMaxEvents === "function") {
       this.captureLimit = adapter.setMaxEvents(this.captureLimit);
     }
-    this.binarySampleBytes = adapter.binarySampleBytes;
-    if (config.binarySampleBytes !== undefined) {
-      this.binarySampleBytes = typeof adapter.setBinarySampleBytes === "function"
-        ? adapter.setBinarySampleBytes(config.binarySampleBytes)
-        : config.binarySampleBytes;
+    const storedBinarySampleBytes = normalizeBinarySampleBytes(config.binarySampleBytes ?? DEFAULT_BINARY_SAMPLE_BYTES, DEFAULT_BINARY_SAMPLE_BYTES);
+    const adapterBinarySampleBytes = normalizeBinarySampleBytes(adapter.binarySampleBytes ?? DEFAULT_BINARY_SAMPLE_BYTES, DEFAULT_BINARY_SAMPLE_BYTES);
+    this.binarySampleBytes = Math.max(DEFAULT_BINARY_SAMPLE_BYTES, storedBinarySampleBytes, adapterBinarySampleBytes);
+    if (typeof adapter.setBinarySampleBytes === "function") {
+      this.binarySampleBytes = adapter.setBinarySampleBytes(this.binarySampleBytes);
+    }
+    if (config.captureLimit !== this.captureLimit || config.binarySampleBytes !== this.binarySampleBytes) {
+      writeConfig({
+        captureLimit: this.captureLimit,
+        binarySampleBytes: this.binarySampleBytes
+      });
     }
     this.copyError = "";
     this.copyFallbackText = "";
