@@ -37,8 +37,8 @@ describe("built userscript runtime", () => {
     window.eval(userscript);
 
     expect(window.__majsoulHelper).toBeTruthy();
-    expect(window.__majsoulHelper.version).toBe("0.2.5");
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.5");
+    expect(window.__majsoulHelper.version).toBe("0.2.6");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.6");
     expect(window.__majsoulHelper.adapter.getInstallDiagnostics().maxEvents).toBe(500);
     expect(window.__majsoulHelper.adapter.getInstallDiagnostics().binarySampleBytes).toBe(2048);
     expect(document.querySelector("#majsoul-helper-overlay")).toBeTruthy();
@@ -89,10 +89,10 @@ describe("built userscript runtime", () => {
     window.eval(userscript);
 
     expect(oldAdapter.uninstall).toHaveBeenCalledTimes(1);
-    expect(window.__majsoulHelper.version).toBe("0.2.5");
+    expect(window.__majsoulHelper.version).toBe("0.2.6");
     expect(window.__majsoulHelper.adapter).not.toBe(oldAdapter);
     expect(document.querySelectorAll("#majsoul-helper-overlay")).toHaveLength(1);
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.5");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.6");
   });
 
   it("sets the helper singleton before the DOM is ready", () => {

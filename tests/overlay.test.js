@@ -12,7 +12,7 @@ class FakeAdapter extends EventTarget {
     this.events = [];
     this.installDiagnostics = {
       installed: true,
-      helperVersion: "0.2.5",
+      helperVersion: "0.2.6",
       installAttempts: 1,
       installedAt: "2026-05-25T00:00:00.000Z",
       installFailureReason: "",
@@ -144,7 +144,7 @@ describe("Overlay", () => {
     overlay.mount();
 
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Training/review use only");
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.5");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.6");
     expect(document.querySelector('[data-action="realtime-advice"]').checked).toBe(false);
     expect(document.querySelector('[data-role="realtime-risk"]')).toBeNull();
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Enter a hand or enable realtime advice");
@@ -710,6 +710,44 @@ describe("Overlay", () => {
     });
   });
 
+  it("shields capture config typing from page listeners while capture is paused", () => {
+    const adapter = new FakeAdapter();
+    adapter.paused = true;
+    adapter.installDiagnostics.paused = true;
+    const overlay = new Overlay({ adapter, gameState: new GameState() });
+    const pageKeydown = vi.fn();
+    const pageInput = vi.fn();
+    const pageChange = vi.fn();
+    document.addEventListener("keydown", pageKeydown);
+    document.addEventListener("input", pageInput);
+    document.addEventListener("change", pageChange);
+
+    overlay.mount();
+
+    let captureLimit = document.querySelector('[data-role="capture-limit"]');
+    captureLimit.focus();
+    captureLimit.value = "2500";
+    captureLimit.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(captureLimit.value).toBe("2500");
+    expect(pageInput).not.toHaveBeenCalled();
+    captureLimit.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+    expect(pageKeydown).not.toHaveBeenCalled();
+    expect(adapter.maxEvents).toBe(2500);
+    expect(adapter.paused).toBe(true);
+
+    let sampleBytes = document.querySelector('[data-role="binary-sample-bytes"]');
+    sampleBytes.focus();
+    sampleBytes.value = "4096";
+    sampleBytes.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(pageInput).not.toHaveBeenCalled();
+    sampleBytes.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(pageChange).not.toHaveBeenCalled();
+    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(4096);
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("capture paused");
+  });
+
   it("restores stored capture limit and expands the adapter event buffer on mount", () => {
     window.localStorage.setItem("majsoul-helper-config", JSON.stringify({ captureLimit: 500 }));
     const adapter = new FakeAdapter();
@@ -718,7 +756,7 @@ describe("Overlay", () => {
 
     expect(adapter.maxEvents).toBe(500);
     expect(document.querySelector('[data-role="capture-limit"]').value).toBe("500");
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.5");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.6");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 2048 bytes");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("page dispatch hooked");
   });

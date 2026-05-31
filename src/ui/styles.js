@@ -78,6 +78,7 @@ export const overlayStyles = `
   padding: 6px 8px;
   color: #e8eaed;
   background: #171717;
+  user-select: text;
 }
 .mh-manual-input {
   flex: 1 1 220px;

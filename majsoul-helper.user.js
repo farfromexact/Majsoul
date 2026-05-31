@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.2.5
+// @version      0.2.6
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -3014,6 +3014,7 @@ var MajsoulHelperBundle = (() => {
   padding: 6px 8px;
   color: #e8eaed;
   background: #171717;
+  user-select: text;
 }
 .mh-manual-input {
   flex: 1 1 220px;
@@ -3068,6 +3069,31 @@ var MajsoulHelperBundle = (() => {
   var DEFAULT_BINARY_SAMPLE_BYTES2 = 2048;
   var DEFAULT_CAPTURE_LIMIT = 500;
   var MAX_CAPTURE_LIMIT = 3e3;
+  var OVERLAY_EVENT_SHIELD_TYPES = [
+    "pointerdown",
+    "pointerup",
+    "pointermove",
+    "mousedown",
+    "mouseup",
+    "click",
+    "dblclick",
+    "touchstart",
+    "touchmove",
+    "touchend",
+    "wheel",
+    "keydown",
+    "keypress",
+    "keyup",
+    "beforeinput",
+    "input",
+    "change",
+    "paste",
+    "copy",
+    "cut",
+    "compositionstart",
+    "compositionupdate",
+    "compositionend"
+  ];
   function escapeHtml(value) {
     return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
   }
@@ -3688,6 +3714,7 @@ var MajsoulHelperBundle = (() => {
       this.downloadUrl = "";
       this.selfTestResult = null;
       this.root = null;
+      this.overlayEventShieldBound = false;
     }
     mount() {
       if (this.root) return;
@@ -3697,8 +3724,19 @@ var MajsoulHelperBundle = (() => {
       this.root = document.createElement("div");
       this.root.id = "majsoul-helper-overlay";
       document.documentElement.appendChild(this.root);
+      this.bindOverlayEventShield();
       this.bindAdapter();
       this.render();
+    }
+    bindOverlayEventShield() {
+      if (this.overlayEventShieldBound || !this.root) return;
+      const stopAtOverlay = (event) => {
+        event.stopPropagation();
+      };
+      for (const type of OVERLAY_EVENT_SHIELD_TYPES) {
+        this.root.addEventListener(type, stopAtOverlay);
+      }
+      this.overlayEventShieldBound = true;
     }
     bindAdapter() {
       this.adapter.addEventListener("majsoul-helper:event", (event) => {
@@ -3960,18 +3998,21 @@ var MajsoulHelperBundle = (() => {
     }
     bindNumericInput(input, { setDraft, commit, reset }) {
       input.oninput = (event) => {
+        event.stopPropagation();
         setDraft(event.target.value.replace(/[^\d]/g, ""));
         if (event.target.value !== event.target.value.replace(/[^\d]/g, "")) {
           event.target.value = event.target.value.replace(/[^\d]/g, "");
         }
       };
       input.onchange = (event) => {
+        event.stopPropagation();
         commit(event.target.value);
       };
       input.onblur = (event) => {
         commit(event.target.value);
       };
       input.onkeydown = (event) => {
+        event.stopPropagation();
         if (event.key === "Enter") {
           event.preventDefault();
           commit(event.currentTarget.value);
@@ -4145,7 +4186,7 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
-  var HELPER_VERSION = "0.2.5";
+  var HELPER_VERSION = "0.2.6";
   function readConfig2() {
     try {
       return JSON.parse(window.localStorage.getItem(STORAGE_KEY2) || "{}");

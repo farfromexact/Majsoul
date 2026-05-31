@@ -9,6 +9,31 @@ const OVERLAY_CAPTURE_NOTE = "Majsoul Helper capture export. Contains message su
 const DEFAULT_BINARY_SAMPLE_BYTES = 2048;
 const DEFAULT_CAPTURE_LIMIT = 500;
 const MAX_CAPTURE_LIMIT = 3000;
+const OVERLAY_EVENT_SHIELD_TYPES = [
+  "pointerdown",
+  "pointerup",
+  "pointermove",
+  "mousedown",
+  "mouseup",
+  "click",
+  "dblclick",
+  "touchstart",
+  "touchmove",
+  "touchend",
+  "wheel",
+  "keydown",
+  "keypress",
+  "keyup",
+  "beforeinput",
+  "input",
+  "change",
+  "paste",
+  "copy",
+  "cut",
+  "compositionstart",
+  "compositionupdate",
+  "compositionend"
+];
 
 function escapeHtml(value) {
   return String(value)
@@ -741,6 +766,7 @@ export class Overlay {
     this.downloadUrl = "";
     this.selfTestResult = null;
     this.root = null;
+    this.overlayEventShieldBound = false;
   }
 
   mount() {
@@ -752,8 +778,20 @@ export class Overlay {
     this.root = document.createElement("div");
     this.root.id = "majsoul-helper-overlay";
     document.documentElement.appendChild(this.root);
+    this.bindOverlayEventShield();
     this.bindAdapter();
     this.render();
+  }
+
+  bindOverlayEventShield() {
+    if (this.overlayEventShieldBound || !this.root) return;
+    const stopAtOverlay = (event) => {
+      event.stopPropagation();
+    };
+    for (const type of OVERLAY_EVENT_SHIELD_TYPES) {
+      this.root.addEventListener(type, stopAtOverlay);
+    }
+    this.overlayEventShieldBound = true;
   }
 
   bindAdapter() {
@@ -1034,18 +1072,21 @@ export class Overlay {
 
   bindNumericInput(input, { setDraft, commit, reset }) {
     input.oninput = (event) => {
+      event.stopPropagation();
       setDraft(event.target.value.replace(/[^\d]/g, ""));
       if (event.target.value !== event.target.value.replace(/[^\d]/g, "")) {
         event.target.value = event.target.value.replace(/[^\d]/g, "");
       }
     };
     input.onchange = (event) => {
+      event.stopPropagation();
       commit(event.target.value);
     };
     input.onblur = (event) => {
       commit(event.target.value);
     };
     input.onkeydown = (event) => {
+      event.stopPropagation();
       if (event.key === "Enter") {
         event.preventDefault();
         commit(event.currentTarget.value);
