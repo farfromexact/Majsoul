@@ -10,7 +10,7 @@
 
 ### Capture Fresh Current-Version Evidence
 
-- Goal: collect/import a safe `0.2.12` real-page capture from round start and use it as the main verification artifact.
+- Goal: collect/import a safe `0.2.13` real-page capture from round start and use it as the main verification artifact.
 - Modules: `scripts/import-capture.mjs`, `scripts/replay-capture.mjs`, `scripts/validate-captures.mjs`, `docs/real-page-sampling.md`.
 - Complexity: Medium.
 
@@ -23,7 +23,7 @@
 ### Prevent Partial-State Misleading UI
 
 - Goal: clearly distinguish "observed rivers/draws only" from "full reliable hand/table state" in overlay and exported diagnostics.
-- Status: Partially improved in `0.2.11` and `0.2.12`; unknown starting hands no longer get synthesized from own draw/discard traffic, long encrypted deal payloads no longer synthesize false riichi state, and replay skips stale live parsed events from raw samples that can be replayed.
+- Status: Partially improved in `0.2.11` through `0.2.13`; unknown starting hands no longer get synthesized from own draw/discard traffic, long encrypted deal payloads no longer synthesize false riichi state, replay skips stale live parsed events from raw samples that can be replayed, and decoded Record-style NewRound fields can restore `tiles0..tiles3` when a self seat is known.
 - Modules: `src/core/gameState.js`, `src/ui/overlay.js`, `src/core/realPageReadiness.js`, tests.
 - Complexity: Medium.
 

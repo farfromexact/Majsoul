@@ -1,5 +1,13 @@
 # CHANGELOG.md
 
+## v0.2.13
+
+### Changed
+
+- Decoded `RecordNewRound`/`ActionNewRound` objects now understand Mahjong Soul replay-style all-seat hand fields such as `tiles0` through `tiles3`, plus `tehais`/`hands`, `selfSeat`, `tile_count`, and the `dora`/`doras`, `ben`, and `liqibang` contract used by mjai-reviewer-style log conversion.
+- Decoded `RecordChiPengGang` objects now preserve the claimed-from seat as `target` when fields such as `from`, `fromSeat`, or `targetSeat` are available.
+- Replay recommendations now point unmapped Unity `ActionNewRound` payloads at the mjai-reviewer `RecordNewRound` field contract so field mapping has a concrete target shape.
+
 ## v0.2.12
 
 ### Changed

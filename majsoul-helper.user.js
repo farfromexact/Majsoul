@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.2.12
+// @version      0.2.13
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -53,6 +53,41 @@ var MajsoulHelperBundle = (() => {
       const number = Number(score);
       return Number.isFinite(number) ? number : score;
     });
+  }
+  function normalizeSeatIndex(value) {
+    if (value === void 0 || value === null) return void 0;
+    const number = Number(value);
+    return Number.isInteger(number) && number >= 0 && number <= 3 ? number : void 0;
+  }
+  function normalizeSeatHands(value) {
+    if (!Array.isArray(value)) return void 0;
+    const hands = value.slice(0, 4).map((hand) => Array.isArray(hand) ? hand : toArray(hand, []));
+    return hands.some((hand) => hand.length) ? hands : void 0;
+  }
+  function readableSeatHands(payload = {}) {
+    const direct = normalizeSeatHands(firstDefined(payload.seatHands, payload.hands, payload.tehais, payload.initialHands));
+    if (direct) return direct;
+    const hands = [[], [], [], []];
+    let found = false;
+    for (let seat = 0; seat < hands.length; seat += 1) {
+      const hand = firstDefined(
+        payload[`tiles${seat}`],
+        payload[`hand${seat}`],
+        payload[`tehai${seat}`]
+      );
+      if (hand !== void 0) {
+        hands[seat] = toArray(hand, []);
+        found = true;
+      }
+    }
+    return found ? hands : void 0;
+  }
+  function readableRoundTiles(payload = {}, seatHands) {
+    const directTiles = firstDefined(payload.tiles, payload.hand, payload.handTiles, payload.qipai, payload.tehai);
+    if (directTiles !== void 0) return directTiles;
+    const seat = normalizeSeatIndex(firstDefined(payload.selfSeat, payload.playerSeat, payload.actor, payload.who, payload.seat));
+    if (seat !== void 0 && seatHands?.[seat]?.length) return seatHands[seat];
+    return seatHands?.[0] || [];
   }
   function readableRoundEndReason(payload = {}, sourceName = "") {
     const explicit = firstDefined(payload.reason, payload.roundEndReason, payload.endReason);
@@ -180,6 +215,7 @@ var MajsoulHelperBundle = (() => {
   function normalizePayload(type, payload, sourceName = "") {
     if (!payload || typeof payload !== "object") return {};
     if (type === "round_start") {
+      const seatHands = readableSeatHands(payload);
       const chang = firstDefined(payload.chang, payload.round_index, payload.roundIndex);
       const ju = firstDefined(payload.ju, payload.ju_index, payload.juIndex, payload.dealer);
       const round = firstDefined(
@@ -198,9 +234,10 @@ var MajsoulHelperBundle = (() => {
         roundWind: firstDefined(payload.roundWind, payload.changfeng, payload.round_wind),
         seatWind: firstDefined(payload.seatWind, payload.zifeng, payload.seat_wind),
         scores: firstDefined(payload.scores, payload.points, payload.score),
-        tiles: firstDefined(payload.tiles, payload.hand, payload.handTiles, payload.qipai, payload.tehai, []),
+        tiles: readableRoundTiles(payload, seatHands),
         doraIndicators: readableDoraIndicators(payload),
-        leftTileCount: firstDefined(payload.leftTileCount, payload.left_tile_count, payload.wallCount)
+        leftTileCount: firstDefined(payload.leftTileCount, payload.left_tile_count, payload.wallCount, payload.wall_count, payload.leftTiles, payload.left_tiles, payload.tile_count),
+        ...seatHands ? { seatHands } : {}
       };
     }
     if (type === "deal_hand") {
@@ -229,8 +266,10 @@ var MajsoulHelperBundle = (() => {
     }
     if (type === "call_meld") {
       const riichi = normalizeReadableRiichi(firstDefined(payload.riichi, payload.liqi));
+      const target = firstDefined(payload.target, payload.from, payload.fromSeat, payload.targetSeat);
       return {
         seat: firstDefined(payload.seat, payload.seat_id, payload.who, payload.actor),
+        ...target !== void 0 ? { target } : {},
         meld: firstDefined(payload.meld, payload.tiles, payload.pais, payload.fulu),
         type: firstDefined(payload.type, payload.meldType),
         doraIndicators: readableDoraIndicators(payload),
@@ -4276,7 +4315,7 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
-  var HELPER_VERSION = "0.2.12";
+  var HELPER_VERSION = "0.2.13";
   function upgradedStoredNumber(value, fallback) {
     const number = Number(value);
     if (!Number.isFinite(number) || number <= 0) return fallback;

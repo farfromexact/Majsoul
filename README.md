@@ -91,15 +91,17 @@ The currently mapped binary `Action*` field numbers are aligned with the public 
 
 Full gameplay protobuf decoding is still intentionally incremental. Unknown or incomplete payloads stay visible in debug output instead of being guessed.
 
+Decoded client objects are also normalized against the Mahjong Soul replay field contract used by mjai-reviewer-style log conversion. In particular, `RecordNewRound`/`ActionNewRound` can use `chang`, `ju`, `ben`, `liqibang`, `scores`, `dora`/`doras`, `tiles`, `tehais`, `hands`, or `tiles0` through `tiles3`; when `selfSeat`/`seat`/`actor` is available, that seat's hand becomes the standard `tiles` field while all-seat hands remain visible as `seatHands`.
+
 The request/response id is decoded as little-endian, matching the public majsoul_wrapper protocol notes. Action payloads are read by protobuf field id for the currently supported visible fields instead of positional guessing.
 
 ## Capturing Real Page Samples
 
-1. Install `majsoul-helper.user.js` in Tampermonkey and confirm the overlay title shows `Majsoul Helper v0.2.12`.
+1. Install `majsoul-helper.user.js` in Tampermonkey and confirm the overlay title shows `Majsoul Helper v0.2.13`.
 2. Open Mahjong Soul and enter a non-ranked or training-friendly room.
 3. Keep realtime advice off unless explicitly testing it.
 4. Use the overlay debug panel to confirm `raw_message` entries are appearing.
-   The `Install` line should read `installed`, `v0.2.12`, and the `Runtime` line should identify whether the page is JS/Laya or Unity WebGL. On older JS/Laya builds, either `client decode hooked` or `page dispatch hooked` is the best signal that decoded visible fields are available. On current Unity WebGL builds, expect the legacy decode hooks to become `not-applicable-unity`; if the capture health says Unity Action names are captured but payload fields are encoded or unmapped, export the capture and treat the next task as finding a Unity runtime decoded hook or action payload decoder. Binary sample bytes default to 65536 in current builds.
+   The `Install` line should read `installed`, `v0.2.13`, and the `Runtime` line should identify whether the page is JS/Laya or Unity WebGL. On older JS/Laya builds, either `client decode hooked` or `page dispatch hooked` is the best signal that decoded visible fields are available. On current Unity WebGL builds, expect the legacy decode hooks to become `not-applicable-unity`; if the capture health says Unity Action names are captured but payload fields are encoded or unmapped, export the capture and treat the next task as finding a Unity runtime decoded hook or action payload decoder. Binary sample bytes default to 65536 in current builds.
 5. Click `Download capture` for a local JSON file, or `Copy capture` if you prefer the clipboard path.
 6. Import the downloaded file with `npm run import-capture -- path/to/majsoul-helper-capture.json`, or run `npm run import-capture` to use the newest matching file in your Downloads folder.
 7. Run `npm run capture-doctor -- captures/capture-real.json` for a compact first diagnosis, then run `npm run real-page-gate` for the strict final real-page check.

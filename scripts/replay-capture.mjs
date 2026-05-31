@@ -774,6 +774,9 @@ function buildRecommendations(diagnostics, replaySummary, acceptance, stateDiagn
   if (diagnostics.unmappedUnityPayloads?.length > 0) {
     recommendations.push(`Captured Unity action payloads still need field mapping: ${diagnostics.unmappedUnityPayloads.map((entry) => `${entry.name} x${entry.count}`).join(", ")}.`);
   }
+  if (hasUnmappedUnityPayload(diagnostics, ["ActionNewRound", "RecordNewRound"])) {
+    recommendations.push("For NewRound mapping, compare Unity payload bytes against the Mahjong Soul RecordNewRound contract used by mjai-reviewer: chang, ju, ben, liqibang, scores, dora/doras, and tiles or tiles0..tiles3.");
+  }
   if (
     helperDiagnostics?.runtime?.unityWebGL
     && diagnostics.rawActionTotal > 0
@@ -814,6 +817,11 @@ function buildRecommendations(diagnostics, replaySummary, acceptance, stateDiagn
     recommendations.push("Capture looks usable for current parser coverage. Validate gameState against the visible table state.");
   }
   return recommendations;
+}
+
+function hasUnmappedUnityPayload(diagnostics, actionNames) {
+  const wanted = new Set(actionNames);
+  return diagnostics.unmappedUnityPayloads?.some((entry) => wanted.has(entry.name)) || false;
 }
 
 function buildStateUpdateRecommendations(stateDiagnostics) {

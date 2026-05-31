@@ -2,7 +2,7 @@
 
 ## Current Version
 
-- Project version: `0.2.12`.
+- Project version: `0.2.13`.
 - Generated userscript: `majsoul-helper.user.js`.
 - Main source entry: `src/main.js`.
 - Target site: `https://game.maj-soul.com/1/`.
@@ -40,9 +40,9 @@ The project has a working modular helper shell, analysis engine, debug overlay, 
 
 - Local goal audit is not fully complete.
 - `npm run audit` proves most static/MVP requirements but still reports real-page validation as needing capture evidence.
-- `captures/capture-real.json` is an ignored local sample from helper `0.2.6`, not current `0.2.12`.
+- `captures/capture-real.json` is an ignored local sample from helper `0.2.6`, not current `0.2.13`.
 - The latest ignored live capture from helper `0.2.11` preserved 1227 events with no buffer drop and parsed draw/discard traffic, but still lacked decoded `ActionNewRound` hand, dora, score, and round metadata.
-- Replay now reports unmapped Unity payload families explicitly, long encrypted `ActionDealTile` payloads no longer create false riichi state, and stale live parsed events from replayable raw samples are skipped.
+- Replay now reports unmapped Unity payload families explicitly, long encrypted `ActionDealTile` payloads no longer create false riichi state, stale live parsed events from replayable raw samples are skipped, and decoded Record-style NewRound objects understand the mjai-reviewer `tiles0..tiles3` field contract.
 
 ## Architecture
 
@@ -106,7 +106,7 @@ The project has a working modular helper shell, analysis engine, debug overlay, 
 
 ## Current Priorities
 
-1. Capture a fresh `0.2.12` real-page session from round start with safe settings and large binary samples, then import/replay it.
+1. Capture a fresh `0.2.13` real-page session from round start with safe settings and large binary samples, then import/replay it.
 2. Decode Unity payload fields for `ActionNewRound` first, especially initial hand, dora indicators, scores, seat, round, honba, riichi sticks, and wall count.
 3. Use `diagnostics.unmappedUnityPayloads` from replay/doctor to choose the next action family instead of trusting accidental protobuf-looking bytes.
 4. Make capture validation and replay agree on readiness/failure reasons.

@@ -295,6 +295,79 @@ describe("messageParser", () => {
     ]);
   });
 
+  it("normalizes Mahjong Soul decoded RecordNewRound all-seat hand fields", () => {
+    expect(parseDecodedMessage({
+      name: "RecordNewRound",
+      data: {
+        chang: 1,
+        ju: 2,
+        ben: 1,
+        liqibang: 2,
+        scores: [28000, 23200, 25000, 23800],
+        dora: "7z",
+        tile_count: 61,
+        selfSeat: 2,
+        tiles0: ["1m", "2m", "3m"],
+        tiles1: ["4p", "5p", "6p"],
+        tiles2: ["3m", "3m", "1p", "2p"],
+        tiles3: ["1s", "2s", "3s"]
+      }
+    })).toEqual([
+      {
+        type: "round_start",
+        payload: {
+          round: "1-2",
+          chang: 1,
+          ju: 2,
+          honba: 1,
+          riichiSticks: 2,
+          roundWind: undefined,
+          seatWind: undefined,
+          scores: [28000, 23200, 25000, 23800],
+          tiles: ["3m", "3m", "1p", "2p"],
+          doraIndicators: ["7z"],
+          leftTileCount: 61,
+          seatHands: [
+            ["1m", "2m", "3m"],
+            ["4p", "5p", "6p"],
+            ["3m", "3m", "1p", "2p"],
+            ["1s", "2s", "3s"]
+          ],
+          binaryEnvelope: {
+            methodName: "RecordNewRound",
+            actionName: "RecordNewRound",
+            step: undefined,
+            decodedSource: "client"
+          }
+        }
+      }
+    ]);
+  });
+
+  it("keeps decoded call target seats from Mahjong Soul RecordChiPengGang objects", () => {
+    expect(parseDecodedMessage({
+      name: "RecordChiPengGang",
+      data: { seat: 2, from: 1, type: 1, tiles: ["5z", "5z", "5z"] }
+    })).toEqual([
+      {
+        type: "call_meld",
+        payload: {
+          seat: 2,
+          target: 1,
+          meld: ["5z", "5z", "5z"],
+          type: 1,
+          doraIndicators: [],
+          binaryEnvelope: {
+            methodName: "RecordChiPengGang",
+            actionName: "RecordChiPengGang",
+            step: undefined,
+            decodedSource: "client"
+          }
+        }
+      }
+    ]);
+  });
+
   it("ignores binary-like or unknown text instead of guessing", () => {
     expect(parseReadableMessage("not json")).toEqual([]);
     expect(parseReadableMessage(JSON.stringify({ name: "UnknownThing", data: { tile: "1m" } }))).toEqual([]);

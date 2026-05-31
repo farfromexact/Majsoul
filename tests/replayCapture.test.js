@@ -2144,6 +2144,53 @@ describe("replayCapture", () => {
     expect(parsed.eventTypes).not.toContain("riichi");
   });
 
+  it("points unmapped NewRound payloads at the mjai-reviewer RecordNewRound contract", () => {
+    const noisyNewRoundPayload = [0x95, 0x7e, 0x63, 0x68, 0x55, 0xae, 0x4e, 0x9c];
+    const actionPrototypePayload = [
+      ...protobufVarint(1, 1),
+      ...protobufString(2, "ActionNewRound"),
+      ...protobufBytes(3, noisyNewRoundPayload)
+    ];
+    const frame = new Uint8Array([
+      1,
+      ...protobufString(1, ".lq.ActionPrototype"),
+      ...protobufBytes(2, actionPrototypePayload)
+    ]);
+    const dir = mkdtempSync(join(tmpdir(), "majsoul-helper-"));
+    const capturePath = join(dir, "unmapped-newround.json");
+    writeFileSync(capturePath, JSON.stringify({
+      exportedAt: "2026-05-31T00:00:00.000Z",
+      formatVersion: 1,
+      events: [
+        {
+          type: "raw_message",
+          source: "ws_in",
+          ts: 1,
+          payload: {
+            kind: "Uint8Array",
+            length: frame.byteLength,
+            preview: `Uint8Array(${frame.byteLength})`,
+            sample: bytesToHex(frame),
+            truncated: false
+          }
+        }
+      ]
+    }));
+
+    const output = execFileSync("node", ["scripts/replay-capture.mjs", capturePath], {
+      encoding: "utf8"
+    });
+    const parsed = JSON.parse(output);
+
+    expect(parsed.eventTypes).toEqual(["round_start"]);
+    expect(parsed.diagnostics.unmappedUnityPayloads).toMatchObject([
+      { name: "ActionNewRound", count: 1 }
+    ]);
+    expect(parsed.recommendations).toContain(
+      "For NewRound mapping, compare Unity payload bytes against the Mahjong Soul RecordNewRound contract used by mjai-reviewer: chang, ju, ben, liqibang, scores, dora/doras, and tiles or tiles0..tiles3."
+    );
+  });
+
   it("reports concrete tile names when replayed state exceeds four known copies", () => {
     const dir = mkdtempSync(join(tmpdir(), "majsoul-helper-"));
     const capturePath = join(dir, "over-count.json");
