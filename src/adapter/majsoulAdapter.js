@@ -1336,11 +1336,16 @@ export function replayCaptureWithDiagnostics(capture) {
   };
   const replayedParsedKeys = new Set();
   const replayedRawParsedKeys = new Set();
+  const replayedRawSummaryKeys = new Set();
   for (const event of orderedEvents.events) {
     if (event.type === "raw_message") {
       replayDedupe.rawMessages += 1;
       const parsedEvents = parseCapturedSampleEvent(event);
-      if (parsedEvents.length) replayDedupe.rawMessagesWithParsedEvents += 1;
+      if (parsedEvents.length) {
+        replayDedupe.rawMessagesWithParsedEvents += 1;
+        const rawSummaryKey = rawSummarySetKey(event.payload);
+        if (rawSummaryKey) replayedRawSummaryKeys.add(rawSummaryKey);
+      }
       replayDedupe.rawParsedEvents += parsedEvents.length;
       for (const parsedEvent of parsedEvents) {
         replayedParsedKeys.add(parsedEventReplayKey(parsedEvent));
@@ -1354,6 +1359,7 @@ export function replayCaptureWithDiagnostics(capture) {
         && (
           replayedParsedKeys.has(parsedEventReplayKey(event))
           || replayedRawParsedKeys.has(parsedEventRawReplayKey(event))
+          || replayedRawSummaryKeys.has(rawSummarySetKey(event.payload.rawSummary))
         )
       ) {
         replayDedupe.skippedLiveParsedEvents += 1;
@@ -1435,6 +1441,11 @@ function rawSummaryReplayKey(rawSummary) {
     sample: rawSummary.sample || "",
     preview: rawSummary.preview || ""
   };
+}
+
+function rawSummarySetKey(rawSummary) {
+  const replayKey = rawSummaryReplayKey(rawSummary);
+  return replayKey ? JSON.stringify(replayKey) : "";
 }
 
 export function summarizeCaptureEvents(events = []) {

@@ -75,6 +75,9 @@ if (report.liveStateComparison?.mismatches?.length) {
 if (report.diagnostics?.unparsedActions?.length) {
   lines.push(`Unparsed actions: ${report.diagnostics.unparsedActions.map((entry) => `${entry.name} x${entry.count}`).join(", ")}`);
 }
+if (report.diagnostics?.unmappedUnityPayloads?.length) {
+  lines.push(`Unmapped Unity payloads: ${report.diagnostics.unmappedUnityPayloads.map((entry) => `${entry.name} x${entry.count}`).join(", ")}`);
+}
 if (report.stateDiagnostics?.kanMeldMismatches?.length) {
   lines.push(`Kan mismatches: ${report.stateDiagnostics.kanMeldMismatches.map((entry) => `${entry.tile || "?"}@${entry.seat ?? "?"} ${entry.actualCopies}/${entry.expectedCopies}`).join(", ")}`);
 }

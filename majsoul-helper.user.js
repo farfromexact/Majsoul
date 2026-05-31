@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.2.11
+// @version      0.2.12
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -693,25 +693,35 @@ var MajsoulHelperBundle = (() => {
       return decodeUnityEncodedDiscardPayload(bytes) || decoded2;
     }
     if (actionName === "ActionDealTile" || actionName === "RecordDealTile") {
-      const riichi = decodeLiQiSuccess(fields, 5);
       const decoded2 = {
         seat: numericField(fields, 1),
         tile: stringField(fields, 2),
         leftTileCount: numericField(fields, 3),
-        doraIndicators: tileStringFields(fields, 6),
-        ...riichi ? { riichi } : {}
+        doraIndicators: tileStringFields(fields, 6)
       };
-      if (decoded2.seat !== void 0 || decoded2.tile || decoded2.doraIndicators.length || decoded2.riichi) return decoded2;
+      if (decoded2.seat !== void 0 || decoded2.tile || decoded2.leftTileCount !== void 0 || decoded2.doraIndicators.length) {
+        const riichi = decodeLiQiSuccess(fields, 5);
+        return {
+          ...decoded2,
+          ...riichi ? { riichi } : {}
+        };
+      }
       return decodeUnityEncodedDealPayload(bytes) || decoded2;
     }
     if (actionName === "ActionChiPengGang" || actionName === "RecordChiPengGang") {
-      const riichi = decodeLiQiSuccess(fields, 5);
-      return {
+      const decoded2 = {
         seat: numericField(fields, 1),
         type: numericField(fields, 2),
-        meld: tileStringFields(fields, 3),
-        ...riichi ? { riichi } : {}
+        meld: tileStringFields(fields, 3)
       };
+      if (decoded2.seat !== void 0 || decoded2.type !== void 0 || decoded2.meld.length) {
+        const riichi = decodeLiQiSuccess(fields, 5);
+        return {
+          ...decoded2,
+          ...riichi ? { riichi } : {}
+        };
+      }
+      return decoded2;
     }
     if (actionName === "ActionAnGangAddGang" || actionName === "RecordAnGangAddGang") {
       return {
@@ -4266,7 +4276,7 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
-  var HELPER_VERSION = "0.2.11";
+  var HELPER_VERSION = "0.2.12";
   function upgradedStoredNumber(value, fallback) {
     const number = Number(value);
     if (!Number.isFinite(number) || number <= 0) return fallback;

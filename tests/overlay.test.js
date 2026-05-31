@@ -12,7 +12,7 @@ class FakeAdapter extends EventTarget {
     this.events = [];
     this.installDiagnostics = {
       installed: true,
-      helperVersion: "0.2.11",
+      helperVersion: "0.2.12",
       installAttempts: 1,
       installedAt: "2026-05-25T00:00:00.000Z",
       installFailureReason: "",
@@ -144,7 +144,7 @@ describe("Overlay", () => {
     overlay.mount();
 
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Training/review use only");
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.11");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.12");
     expect(document.querySelector('[data-action="realtime-advice"]').checked).toBe(false);
     expect(document.querySelector('[data-role="realtime-risk"]')).toBeNull();
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Enter a hand or enable realtime advice");
@@ -762,7 +762,7 @@ describe("Overlay", () => {
       captureLimit: 10000,
       binarySampleBytes: 65536
     });
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.11");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.12");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 65536 bytes");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("page dispatch hooked");
   });

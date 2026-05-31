@@ -525,6 +525,40 @@ describe("messageParser", () => {
     });
   });
 
+  it("does not emit riichi from unmapped long Unity draw payload bytes", () => {
+    const nestedNoise = [
+      ...protobufBytes(5, [
+        ...protobufVarint(2, 36)
+      ])
+    ];
+    const actionPrototypePayload = [
+      ...protobufVarint(1, 42),
+      ...protobufString(2, "ActionDealTile"),
+      ...protobufBytes(3, nestedNoise)
+    ];
+    const frame = new Uint8Array([
+      1,
+      ...protobufString(1, ".lq.ActionPrototype"),
+      ...protobufBytes(2, actionPrototypePayload)
+    ]);
+
+    expect(parseBinaryMessage(frame)).toEqual([
+      {
+        type: "draw_tile",
+        payload: {
+          seat: undefined,
+          tile: undefined,
+          leftTileCount: undefined,
+          doraIndicators: [],
+          binaryEnvelope: expect.objectContaining({
+            actionName: "ActionDealTile",
+            step: 42
+          })
+        }
+      }
+    ]);
+  });
+
   it("uses little-endian request ids for request and response frames", () => {
     const frame = new Uint8Array([
       2,

@@ -1,5 +1,13 @@
 # CHANGELOG.md
 
+## v0.2.12
+
+### Changed
+
+- `ActionDealTile` no longer accepts standalone random-looking nested bytes as `LiQiSuccess`; long encrypted Unity deal payloads now stay unmapped instead of emitting false `riichi` events.
+- Replay now treats any successfully replayed raw sample as the source of truth for that sample, so stale live parsed events from older helper versions do not survive after parser fixes.
+- Replay diagnostics now report `unmappedUnityPayloads`, and `capture-doctor` prints an `Unmapped Unity payloads` line so live captures show which action families still need decoder work.
+
 ## v0.2.11
 
 ### Changed
@@ -37,7 +45,7 @@
 - Full real-page game-state restoration is not complete.
 - Unity `ActionNewRound` payloads are not yet decoded enough to recover initial hand, dora, scores, seat, and round metadata reliably.
 - Several longer Unity action payloads remain encoded or unmapped.
-- Current local ignored capture evidence is stale and not from version `0.2.11`.
+- Current local ignored capture evidence is diagnostic-only and not ready for real-page MVP acceptance.
 - Batch capture validation and direct replay disagree on the stale local capture's readiness.
 - Large parser/adapter/overlay modules should be split once decoder behavior stabilizes.
 - Some user-facing text contains mojibake around punctuation examples.

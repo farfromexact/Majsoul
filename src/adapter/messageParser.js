@@ -797,26 +797,36 @@ function decodeSimpleActionPayload(actionName, bytes) {
   }
 
   if (actionName === "ActionDealTile" || actionName === "RecordDealTile") {
-    const riichi = decodeLiQiSuccess(fields, 5);
     const decoded = {
       seat: numericField(fields, 1),
       tile: stringField(fields, 2),
       leftTileCount: numericField(fields, 3),
-      doraIndicators: tileStringFields(fields, 6),
-      ...(riichi ? { riichi } : {})
+      doraIndicators: tileStringFields(fields, 6)
     };
-    if (decoded.seat !== undefined || decoded.tile || decoded.doraIndicators.length || decoded.riichi) return decoded;
+    if (decoded.seat !== undefined || decoded.tile || decoded.leftTileCount !== undefined || decoded.doraIndicators.length) {
+      const riichi = decodeLiQiSuccess(fields, 5);
+      return {
+        ...decoded,
+        ...(riichi ? { riichi } : {})
+      };
+    }
     return decodeUnityEncodedDealPayload(bytes) || decoded;
   }
 
   if (actionName === "ActionChiPengGang" || actionName === "RecordChiPengGang") {
-    const riichi = decodeLiQiSuccess(fields, 5);
-    return {
+    const decoded = {
       seat: numericField(fields, 1),
       type: numericField(fields, 2),
-      meld: tileStringFields(fields, 3),
-      ...(riichi ? { riichi } : {})
+      meld: tileStringFields(fields, 3)
     };
+    if (decoded.seat !== undefined || decoded.type !== undefined || decoded.meld.length) {
+      const riichi = decodeLiQiSuccess(fields, 5);
+      return {
+        ...decoded,
+        ...(riichi ? { riichi } : {})
+      };
+    }
+    return decoded;
   }
 
   if (actionName === "ActionAnGangAddGang" || actionName === "RecordAnGangAddGang") {

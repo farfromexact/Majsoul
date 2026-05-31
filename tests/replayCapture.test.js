@@ -195,6 +195,67 @@ describe("replayCapture", () => {
     });
   });
 
+  it("dedupes stale live parsed events when raw replay no longer emits them", () => {
+    const noisyDealPayload = [
+      ...protobufBytes(5, [
+        ...protobufVarint(2, 36)
+      ])
+    ];
+    const actionPrototypePayload = [
+      ...protobufVarint(1, 42),
+      ...protobufString(2, "ActionDealTile"),
+      ...protobufBytes(3, noisyDealPayload)
+    ];
+    const frame = new Uint8Array([
+      1,
+      ...protobufString(1, ".lq.ActionPrototype"),
+      ...protobufBytes(2, actionPrototypePayload)
+    ]);
+    const rawSummary = {
+      kind: "Uint8Array",
+      length: frame.byteLength,
+      preview: `Uint8Array(${frame.byteLength})`,
+      sample: bytesToHex(frame),
+      truncated: false
+    };
+    const liveCapture = {
+      exportedAt: "2026-05-31T00:00:00.000Z",
+      formatVersion: 1,
+      events: [
+        {
+          eventId: 1,
+          type: "raw_message",
+          source: "ws_in",
+          ts: 11,
+          payload: rawSummary
+        },
+        {
+          eventId: 2,
+          type: "riichi",
+          source: "ws_in",
+          ts: 11,
+          payload: {
+            score: 36,
+            binaryEnvelope: { methodName: ".lq.ActionPrototype", actionName: "ActionDealTile" },
+            rawSummary
+          }
+        }
+      ]
+    };
+
+    const { events, replayDedupe } = replayCaptureWithDiagnostics(liveCapture);
+
+    expect(events.map((event) => event.type)).toEqual(["draw_tile"]);
+    expect(replayDedupe).toMatchObject({
+      rawParsedEvents: 1,
+      liveParsedEvents: 1,
+      skippedLiveParsedEvents: 1,
+      retainedLiveParsedEvents: 0,
+      fallbackLiveParsedEvents: 0,
+      replayedEvents: 1
+    });
+  });
+
   it("uses eventId ordering when replaying captures that include stable event ids", () => {
     const discardPayload = [
       ...protobufVarint(1, 1),
@@ -2024,6 +2085,63 @@ describe("replayCapture", () => {
       truncatedActionPayloads: 1
     });
     expect(parsed.recommendations).toContain("Some raw binary capture samples are truncated. Increase Binary sample bytes and collect a fresh capture before mapping missing fields.");
+  });
+
+  it("reports unmapped Unity action payloads separately from parsed action names", () => {
+    const noisyDealPayload = [
+      ...protobufBytes(5, [
+        ...protobufVarint(2, 36)
+      ])
+    ];
+    const actionPrototypePayload = [
+      ...protobufVarint(1, 42),
+      ...protobufString(2, "ActionDealTile"),
+      ...protobufBytes(3, noisyDealPayload)
+    ];
+    const frame = new Uint8Array([
+      1,
+      ...protobufString(1, ".lq.ActionPrototype"),
+      ...protobufBytes(2, actionPrototypePayload)
+    ]);
+    const dir = mkdtempSync(join(tmpdir(), "majsoul-helper-"));
+    const capturePath = join(dir, "unmapped-unity-payload.json");
+    writeFileSync(capturePath, JSON.stringify({
+      exportedAt: "2026-05-31T00:00:00.000Z",
+      formatVersion: 1,
+      events: [
+        {
+          type: "raw_message",
+          source: "ws_in",
+          ts: 1,
+          payload: {
+            kind: "Uint8Array",
+            length: frame.byteLength,
+            preview: `Uint8Array(${frame.byteLength})`,
+            sample: bytesToHex(frame),
+            truncated: false
+          }
+        }
+      ]
+    }));
+
+    const output = execFileSync("node", ["scripts/replay-capture.mjs", capturePath], {
+      encoding: "utf8"
+    });
+    const parsed = JSON.parse(output);
+
+    expect(parsed.eventTypes).toEqual(["draw_tile"]);
+    expect(parsed.diagnostics.unparsedActions).toEqual([]);
+    expect(parsed.diagnostics.unmappedUnityPayloads).toMatchObject([
+      {
+        name: "ActionDealTile",
+        count: 1,
+        sample: {
+          actionPayloadLength: noisyDealPayload.length
+        }
+      }
+    ]);
+    expect(parsed.recommendations).toContain("Captured Unity action payloads still need field mapping: ActionDealTile x1.");
+    expect(parsed.eventTypes).not.toContain("riichi");
   });
 
   it("reports concrete tile names when replayed state exceeds four known copies", () => {

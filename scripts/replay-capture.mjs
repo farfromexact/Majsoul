@@ -5,6 +5,25 @@ import { GameState } from "../src/core/gameState.js";
 import { REAL_PAGE_PREFLIGHT_VERSION, REQUIRED_REAL_PAGE_PREFLIGHT_CHECKS } from "../src/core/realPageReadiness.js";
 import { indexToTile, normalizeTile, tilesToCounts } from "../src/core/tile.js";
 
+const UNMAPPED_UNITY_ACTIONS = new Set([
+  "ActionNewRound",
+  "RecordNewRound",
+  "ActionDealTile",
+  "RecordDealTile",
+  "ActionDiscardTile",
+  "RecordDiscardTile",
+  "ActionChiPengGang",
+  "RecordChiPengGang",
+  "ActionAnGangAddGang",
+  "RecordAnGangAddGang",
+  "ActionHule",
+  "RecordHule",
+  "ActionLiuJu",
+  "RecordLiuJu",
+  "ActionNoTile",
+  "RecordNoTile"
+]);
+
 const args = process.argv.slice(2);
 const capturePath = args[0];
 const fixtureOutIndex = args.indexOf("--fixture-out");
@@ -212,8 +231,55 @@ function buildReplayDiagnostics(rawEvents, replayedEvents) {
     parsedActionTotal,
     parsedActionCoverage: rawActionTotal === 0 ? null : Number((parsedActionTotal / rawActionTotal).toFixed(3)),
     unparsedActions: sortCounts(unparsedActions),
-    unparsedMethods: sortCounts(unparsedMethods)
+    unparsedMethods: sortCounts(unparsedMethods),
+    unmappedUnityPayloads: buildUnmappedUnityPayloads(rawMessages)
   };
+}
+
+function buildUnmappedUnityPayloads(rawMessages) {
+  const entries = new Map();
+  for (const event of rawMessages || []) {
+    const envelope = getRawEnvelope(event);
+    const actionName = envelope?.actionName;
+    if (!UNMAPPED_UNITY_ACTIONS.has(actionName)) continue;
+    if (!looksLikeUnmappedUnityPayload(actionName, envelope)) continue;
+
+    if (!entries.has(actionName)) {
+      entries.set(actionName, {
+        name: actionName,
+        count: 0,
+        sample: {
+          source: event.source || "unknown",
+          messageLength: event.payload?.length ?? null,
+          actionPayloadLength: envelope.actionPayloadLength ?? null,
+          actionPayloadFields: envelope.actionPayloadFields || {
+            varints: [],
+            strings: [],
+            tileStrings: []
+          }
+        }
+      });
+    }
+    entries.get(actionName).count += 1;
+  }
+  return Array.from(entries.values())
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+function looksLikeUnmappedUnityPayload(actionName, envelope) {
+  const length = Number(envelope?.actionPayloadLength || 0);
+  if (!length || envelope?.actionPayloadTruncated) return false;
+  if (isMappedUnityPayloadShape(actionName, length)) return false;
+  const fields = envelope.actionPayloadFields || {};
+  const readableStrings = Number(fields.strings?.length || 0);
+  const tileStrings = Number(fields.tileStrings?.length || 0);
+  return readableStrings === 0 && tileStrings === 0;
+}
+
+function isMappedUnityPayloadShape(actionName, length) {
+  if (actionName === "ActionDiscardTile" || actionName === "RecordDiscardTile") return length === 14;
+  if (actionName === "ActionDealTile" || actionName === "RecordDealTile") return length === 6 || length === 24;
+  return false;
 }
 
 function buildActionDiagnostics(rawEvents, replayedEvents) {
@@ -704,6 +770,9 @@ function buildRecommendations(diagnostics, replaySummary, acceptance, stateDiagn
   }
   if (diagnostics.unparsedActions.length > 0) {
     recommendations.push(`Map unparsed ActionPrototype events: ${diagnostics.unparsedActions.map((entry) => entry.name).join(", ")}.`);
+  }
+  if (diagnostics.unmappedUnityPayloads?.length > 0) {
+    recommendations.push(`Captured Unity action payloads still need field mapping: ${diagnostics.unmappedUnityPayloads.map((entry) => `${entry.name} x${entry.count}`).join(", ")}.`);
   }
   if (
     helperDiagnostics?.runtime?.unityWebGL

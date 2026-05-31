@@ -2,7 +2,7 @@
 
 ## Current Version
 
-- Project version: `0.2.11`.
+- Project version: `0.2.12`.
 - Generated userscript: `majsoul-helper.user.js`.
 - Main source entry: `src/main.js`.
 - Target site: `https://game.maj-soul.com/1/`.
@@ -40,9 +40,9 @@ The project has a working modular helper shell, analysis engine, debug overlay, 
 
 - Local goal audit is not fully complete.
 - `npm run audit` proves most static/MVP requirements but still reports real-page validation as needing capture evidence.
-- `captures/capture-real.json` is an ignored local sample from helper `0.2.6`, not current `0.2.11`.
-- Manual replay of that old capture can parse many actions, but batch capture validation currently reports the capture as not ready.
-- The latest visible progress from user testing showed parsed discards/draws/rivers and visible-tile counts in the overlay, but current repository evidence does not include a committed real-page-ready `0.2.11` capture.
+- `captures/capture-real.json` is an ignored local sample from helper `0.2.6`, not current `0.2.12`.
+- The latest ignored live capture from helper `0.2.11` preserved 1227 events with no buffer drop and parsed draw/discard traffic, but still lacked decoded `ActionNewRound` hand, dora, score, and round metadata.
+- Replay now reports unmapped Unity payload families explicitly, long encrypted `ActionDealTile` payloads no longer create false riichi state, and stale live parsed events from replayable raw samples are skipped.
 
 ## Architecture
 
@@ -96,7 +96,7 @@ The project has a working modular helper shell, analysis engine, debug overlay, 
   - Some longer `ActionDiscardTile`, `ActionDealTile`, `ActionChiPengGang`, `ActionAnGangAddGang`, `ActionHule`, and restore/sync payloads remain unmapped.
 - The current blocker is mostly interpretation, not raw capture. WebSocket traffic and action names are visible; important payload fields are still encoded or unknown.
 - `GameState.hand` is now treated as a decoded base hand; own draw/discard traffic without a decoded initial hand no longer invents a partial hand. Unity captures still need `ActionNewRound` decoding before full hand analysis can be trusted.
-- Local ignored capture data is stale. `captures/capture-real.json` is helper `0.2.6`; current code is `0.2.11`.
+- Local ignored capture data is diagnostic-only. `captures/capture-real.json` is helper `0.2.6`; the latest user-supplied live capture was helper `0.2.11` and remains not ready.
 - `npm run validate-captures -- --summary` reports the local capture as failed/not ready, while direct replay can produce diagnostics. This validation path needs investigation before being used as a release gate.
 - `messageParser.js`, `majsoulAdapter.js`, and `overlay.js` are large modules with multiple responsibilities. Future decoder work risks regressions unless tested narrowly.
 - Acceptance/readiness logic exists in both UI/runtime exports and replay/audit scripts, creating drift risk.
@@ -106,11 +106,12 @@ The project has a working modular helper shell, analysis engine, debug overlay, 
 
 ## Current Priorities
 
-1. Capture a fresh `0.2.11` real-page session from round start with safe settings and large binary samples, then import/replay it.
+1. Capture a fresh `0.2.12` real-page session from round start with safe settings and large binary samples, then import/replay it.
 2. Decode Unity payload fields for `ActionNewRound` first, especially initial hand, dora indicators, scores, seat, round, honba, riichi sticks, and wall count.
-3. Make capture validation and replay agree on readiness/failure reasons.
-4. Add regression tests for every newly decoded Unity action shape.
-5. Keep no-automation safety boundaries intact while expanding live-state parsing.
+3. Use `diagnostics.unmappedUnityPayloads` from replay/doctor to choose the next action family instead of trusting accidental protobuf-looking bytes.
+4. Make capture validation and replay agree on readiness/failure reasons.
+5. Add regression tests for every newly decoded Unity action shape.
+6. Keep no-automation safety boundaries intact while expanding live-state parsing.
 
 ## Risk Assessment
 
