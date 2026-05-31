@@ -22,7 +22,7 @@ Before using a real game page, open `smoke.html` and click `Emit sample traffic`
 
 The generated userscript uses `@run-at document-start` and `@inject-into page` so the WebSocket hook is installed in the game page context as early as possible. It targets common Mahjong Soul web hosts including `mahjongsoul.game.yo-star.com`, `mahjongsoul.com`, and `maj-soul.com`. If the debug panel never shows `raw_message` entries after joining a table, confirm Tampermonkey supports page injection and that the generated metadata header is intact.
 
-If the page context does not expose `WebSocket` at the first document-start tick, the helper retries hook installation every 250 ms until it succeeds. The debug panel shows install attempts, whether `WebSocket` is currently available, and the binary sample size used for capture exports. Increase `Binary sample bytes` before collecting a new capture if replay diagnostics report truncated raw binary samples.
+If the page context does not expose `WebSocket` at the first document-start tick, the helper retries hook installation every 250 ms until it succeeds. The helper also passively retries a read-only `net.MessageWrapper.decodeMessage` hook when the Mahjong Soul client exposes it, so current clients that decode `ActionPrototype.data` inside the page can still feed standardized visible events without mutating messages. The debug panel shows install attempts, whether `WebSocket` is currently available, whether client decode is hooked or still waiting, and the binary sample size used for capture exports. Increase `Binary sample bytes` before collecting a new capture if replay diagnostics report truncated raw binary samples.
 
 The debug panel also shows how many WebSocket instances were created after the hook installed and the most recent socket URLs. This helps distinguish an installation problem from a page state where the game client has not opened live traffic yet.
 
@@ -77,7 +77,7 @@ If the browser denies clipboard access, the overlay shows a selectable fallback 
 
 ## Current MVP Notes
 
-The WebSocket adapter records realtime inbound/outbound message summaries and exposes them in the debug panel. It also performs conservative parsing for readable JSON messages whose names clearly match known round/tile actions.
+The WebSocket adapter records realtime inbound/outbound message summaries and exposes them in the debug panel. It also performs conservative parsing for readable JSON messages whose names clearly match known round/tile actions. On the live web client, it also observes `net.MessageWrapper.decodeMessage` after the page has decoded a message; this records only a sanitized decoded-message summary plus standardized visible game events.
 
 For binary frames, the helper parses the public outer Liqi-style envelope shape: frame type byte (`Notify`, `Request`, `Response`), request id when present, protobuf length-delimited method name, and a bounded payload hex sample. It recognizes `.lq.ActionPrototype`, extracts the inner `Action*` name, and conservatively reads simple visible fields for discard/draw-style actions when they are present. If the binary method itself is a direct `.lq.Action*` method, the helper also treats that method payload as an action payload for the same conservative field extraction and diagnostics.
 
@@ -95,7 +95,7 @@ The request/response id is decoded as little-endian, matching the public majsoul
 2. Open Mahjong Soul and enter a non-ranked or training-friendly room.
 3. Keep realtime advice off unless explicitly testing it.
 4. Use the overlay debug panel to confirm `raw_message` entries are appearing.
-   The `Install` line should read `installed`; if it does not, check the displayed failure reason before collecting a sample. If earlier replay output reported truncated samples, raise `Binary sample bytes` and collect again.
+   The `Install` line should read `installed`, and on the current production client `client decode` should become `hooked` after the game code loads. If it remains `waiting` after joining a table and reloading once, export the capture anyway but expect state restoration to remain incomplete until the decoded-message hook is mapped. If earlier replay output reported truncated samples, raise `Binary sample bytes` and collect again.
 5. Click `Download capture` for a local JSON file, or `Copy capture` if you prefer the clipboard path.
 6. Import the downloaded file with `npm run import-capture -- path/to/majsoul-helper-capture.json`, or run `npm run import-capture` to use the newest matching file in your Downloads folder.
 7. Run `npm run capture-doctor -- captures/capture-real.json` for a compact first diagnosis, then run `npm run real-page-gate` for the strict final real-page check.
@@ -171,6 +171,6 @@ Implemented and locally verified:
 
 Still requires real Mahjong Soul page validation:
 
-- Confirm Tampermonkey page injection captures live `raw_message` entries on the current production web client.
-- Collect real ActionPrototype samples and verify field mappings for new round, hand, draw, discard, call, riichi, dora, round end, win, and draw-game events.
+- Confirm Tampermonkey page injection captures live `raw_message` entries and the passive client-decode hook reaches `hooked` on the current production web client.
+- Collect a fresh real capture after the client-decode hook change and verify field mappings for new round, hand, draw, discard, call, riichi, dora, round end, win, and draw-game events.
 - Validate automatic gameState restoration against an actual non-ranked/training-friendly table.

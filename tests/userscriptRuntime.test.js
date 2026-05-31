@@ -23,9 +23,11 @@ describe("built userscript runtime", () => {
     window.localStorage.clear();
     window.WebSocket = FakeWebSocket;
     delete window.__majsoulHelper;
+    delete window.net;
   });
 
   afterEach(() => {
+    window.__majsoulHelper?.adapter?.uninstall?.();
     vi.useRealTimers();
   });
 
@@ -139,6 +141,35 @@ describe("built userscript runtime", () => {
     });
     expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("1024");
     expect(document.querySelector('[data-role="capture-limit"]').value).toBe("500");
+  });
+
+  it("records page-decoded MessageWrapper events in the generated userscript", () => {
+    window.net = {
+      MessageWrapper: {
+        decodeMessage() {
+          return {
+            name: ".lq.ActionPrototype",
+            data: {
+              name: "ActionDiscardTile",
+              step: 9,
+              data: { seat: 2, tile: "8p" }
+            }
+          };
+        }
+      }
+    };
+    const userscript = readFileSync("majsoul-helper.user.js", "utf8");
+
+    window.eval(userscript);
+    window.net.MessageWrapper.decodeMessage(new Uint8Array([1]));
+
+    const events = window.__majsoulHelper.adapter.getRecentEvents();
+    expect(events[0]).toMatchObject({
+      type: "discard_tile",
+      source: "client_decode",
+      payload: { seat: 2, tile: "8p" }
+    });
+    expect(window.__majsoulHelper.adapter.getInstallDiagnostics().hooks.decodedMessage).toBe(true);
   });
 
   it("runs the generated userscript self-test without recording fake traffic", () => {

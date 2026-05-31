@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BINARY_ENVELOPE_SAMPLE_BYTES, parseBinaryEnvelope, parseBinaryMessage, parseReadableMessage, toEventType } from "../src/adapter/messageParser.js";
+import { BINARY_ENVELOPE_SAMPLE_BYTES, parseBinaryEnvelope, parseBinaryMessage, parseDecodedMessage, parseReadableMessage, toEventType } from "../src/adapter/messageParser.js";
 
 function encodeVarint(value) {
   const bytes = [];
@@ -229,6 +229,63 @@ describe("messageParser", () => {
           tsumogiri: undefined,
           isRiichi: undefined,
           doraIndicators: []
+        }
+      }
+    ]);
+  });
+
+  it("parses client-decoded ActionPrototype messages without raw inner protobuf bytes", () => {
+    expect(parseDecodedMessage({
+      name: ".lq.ActionPrototype",
+      data: {
+        name: "ActionDiscardTile",
+        step: 72,
+        data: {
+          seat: 2,
+          tile: "6s",
+          moqie: true,
+          is_liqi: true,
+          doras: ["1z"]
+        }
+      }
+    })).toEqual([
+      {
+        type: "discard_tile",
+        payload: {
+          seat: 2,
+          tile: "6s",
+          tsumogiri: true,
+          isRiichi: true,
+          doraIndicators: ["1z"],
+          binaryEnvelope: {
+            methodName: ".lq.ActionPrototype",
+            actionName: "ActionDiscardTile",
+            step: 72,
+            decodedSource: "client"
+          }
+        }
+      }
+    ]);
+  });
+
+  it("parses direct client-decoded action records", () => {
+    expect(parseDecodedMessage({
+      name: "ActionDealTile",
+      data: { seat: 0, tile: "5m", left_tile_count: 44, doras: ["4p"] }
+    })).toEqual([
+      {
+        type: "draw_tile",
+        payload: {
+          seat: 0,
+          tile: "5m",
+          leftTileCount: 44,
+          doraIndicators: ["4p"],
+          binaryEnvelope: {
+            methodName: "ActionDealTile",
+            actionName: "ActionDealTile",
+            step: undefined,
+            decodedSource: "client"
+          }
         }
       }
     ]);

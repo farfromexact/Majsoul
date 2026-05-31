@@ -159,6 +159,9 @@ console.log(JSON.stringify({
   }
 }, null, 2));
 
+helper.adapter.uninstall();
+window.close();
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);

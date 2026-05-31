@@ -67,7 +67,7 @@
         <ol>
           <li>Open Mahjong Soul and confirm the overlay appears.</li>
           <li>Click <code>Self-test</code> in the debug panel and confirm it reports <code>Self-test: ok</code>.</li>
-          <li>Confirm the debug panel shows <code>Install: installed</code>, hook diagnostics, and a non-zero socket count after joining a table.</li>
+          <li>Confirm the debug panel shows <code>Install: installed</code>, <code>client decode hooked</code> when the game code has loaded, hook diagnostics, and a non-zero socket count after joining a table.</li>
           <li>Watch the <code>MVP gate</code> line. If it lists missing items, collect from the start of a round or follow the missing field names before trusting the state.</li>
           <li>Watch the <code>Real-page preflight</code> line. It should reach <code>15/15</code> before export, including the safety snapshot checks, then run the displayed <code>capture-doctor</code> command before the final real-page gate.</li>
           <li>Keep realtime advice off unless explicitly testing training-mode analysis; acceptance samples require <code>liveSafetySettings</code> to show realtime advice off, manual input clear, and automation/message mutation disabled.</li>

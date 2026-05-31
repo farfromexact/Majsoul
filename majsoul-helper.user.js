@@ -106,6 +106,77 @@ var MajsoulHelperBundle = (() => {
     const payload = firstDefined(message.payload, message.data, message.result, message.params, message);
     return { name, payload };
   }
+  function extractDecodedName(value, depth = 0) {
+    if (depth > 3 || value === void 0 || value === null) return void 0;
+    if (typeof value === "string") return value;
+    if (typeof value !== "object") return void 0;
+    const direct = firstDefined(value.name, value.method, value.type, value.event, value.msg, value.command, value.actionName, value.action);
+    if (typeof direct === "string") return direct;
+    const typed = firstDefined(
+      readPath(value, ["$type", "fullName"]),
+      readPath(value, ["$type", "name"]),
+      readPath(value, ["constructor", "$type", "fullName"]),
+      readPath(value, ["constructor", "$type", "name"])
+    );
+    if (typeof typed === "string") return typed;
+    const nested = firstDefined(
+      readPath(value, ["wrapper", "name"]),
+      readPath(value, ["head", "name"]),
+      readPath(value, ["message", "name"]),
+      readPath(value, ["name", "name"]),
+      readPath(value, ["method", "name"]),
+      readPath(value, ["type", "name"])
+    );
+    const nestedName = extractDecodedName(nested, depth + 1);
+    if (nestedName) return nestedName;
+    const constructorName = value.constructor?.name;
+    return /^(Action|Record)[A-Za-z0-9_]+$/.test(constructorName) ? constructorName : void 0;
+  }
+  function decodedPayloadOf(message) {
+    if (!message || typeof message !== "object") return {};
+    return firstDefined(message.data, message.payload, message.result, message.params, message.detail, message);
+  }
+  function decodedStepOf(message, payload) {
+    return firstDefined(
+      message?.step,
+      message?.seq,
+      message?.sequence,
+      payload?.step,
+      payload?.seq,
+      payload?.sequence
+    );
+  }
+  function isActionPrototypeName(name = "") {
+    return String(name).split(".").pop() === "ActionPrototype";
+  }
+  function buildDecodedEnvelope(message) {
+    if (!message || typeof message !== "object") return null;
+    const outerName = extractDecodedName(message);
+    const outerPayload = decodedPayloadOf(message);
+    const actionName = extractDecodedName(outerPayload);
+    const hasNestedActionPayload = Boolean(
+      actionName && outerPayload && typeof outerPayload === "object" && outerPayload !== message && ("data" in outerPayload || "payload" in outerPayload || "result" in outerPayload)
+    );
+    const name = isActionPrototypeName(outerName) || hasNestedActionPayload ? actionName : outerName;
+    if (!name) return null;
+    const payload = hasNestedActionPayload || isActionPrototypeName(outerName) ? decodedPayloadOf(outerPayload) : outerPayload;
+    const methodName = isActionPrototypeName(outerName) ? ".lq.ActionPrototype" : outerName;
+    return {
+      name,
+      payload: payload && typeof payload === "object" ? payload : {},
+      methodName,
+      actionName: /^(Action|Record)[A-Za-z0-9_]+$/.test(String(name)) ? String(name) : void 0,
+      step: decodedStepOf(message, outerPayload)
+    };
+  }
+  function decodedBinaryEnvelope(envelope) {
+    return definedObject({
+      methodName: envelope.methodName,
+      actionName: envelope.actionName,
+      step: envelope.step,
+      decodedSource: "client"
+    });
+  }
   function normalizePayload(type, payload, sourceName = "") {
     if (!payload || typeof payload !== "object") return {};
     if (type === "round_start") {
@@ -151,8 +222,8 @@ var MajsoulHelperBundle = (() => {
       return {
         seat: firstDefined(payload.seat, payload.seat_id, payload.who, payload.actor),
         tile: firstDefined(payload.tile, payload.pai, payload.card),
-        tsumogiri: firstDefined(payload.tsumogiri, payload.is_tsumogiri),
-        isRiichi: firstDefined(payload.isRiichi, payload.riichi, payload.lizhi, payload.liqi),
+        tsumogiri: firstDefined(payload.tsumogiri, payload.is_tsumogiri, payload.moqie),
+        isRiichi: firstDefined(payload.isRiichi, payload.is_liqi, payload.riichi, payload.lizhi, payload.liqi),
         doraIndicators: readableDoraIndicators(payload)
       };
     }
@@ -781,6 +852,22 @@ var MajsoulHelperBundle = (() => {
     }
     return events;
   }
+  function parseDecodedMessage(data) {
+    const messages = Array.isArray(data) ? data : [data];
+    const events = [];
+    for (const message of messages) {
+      const envelope = buildDecodedEnvelope(message);
+      if (!envelope) continue;
+      const type = toEventType(envelope.name);
+      if (!type) continue;
+      const payload = normalizePayload(type, envelope.payload, envelope.name);
+      events.push(...expandStandardEvents(type, {
+        ...payload,
+        binaryEnvelope: decodedBinaryEnvelope(envelope)
+      }));
+    }
+    return events;
+  }
   function parseBinaryMessage(data) {
     const frame = parseBinaryFrame(data);
     const envelope = frame?.envelope;
@@ -833,7 +920,11 @@ var MajsoulHelperBundle = (() => {
       addEventListener: false,
       removeEventListener: false,
       onmessage: false,
-      onmessageMode: "not-installed"
+      onmessageMode: "not-installed",
+      decodedMessage: false,
+      decodedMessageMode: "not-installed",
+      decodedMessageAttempts: 0,
+      decodedMessageFailureReason: ""
     };
   }
   function copyConstructorStatics(target, source) {
@@ -968,6 +1059,57 @@ var MajsoulHelperBundle = (() => {
       truncated: bytes.byteLength > sampleLength,
       envelope: parseBinaryEnvelope(bytes)
     };
+  }
+  function summarizeDecodedMessage(message, hookName, parsedEvents = []) {
+    const envelope = firstDecodedEnvelopeSummary(message);
+    return {
+      hook: hookName,
+      name: envelope.name,
+      actionName: envelope.actionName,
+      payloadKeys: envelope.payloadKeys,
+      parsedTypes: parsedEvents.map((event) => event.type),
+      parsedCount: parsedEvents.length
+    };
+  }
+  function firstDecodedEnvelopeSummary(message) {
+    const first = Array.isArray(message) ? message[0] : message;
+    if (!first || typeof first !== "object") {
+      return {
+        name: "",
+        actionName: "",
+        payloadKeys: []
+      };
+    }
+    const name = stringValue(
+      first.name,
+      first.method,
+      first.type,
+      first.event,
+      first.msg,
+      first.command,
+      first.actionName,
+      first.action,
+      first.wrapper?.name,
+      first.head?.name,
+      first.message?.name
+    );
+    const payload = objectValue(first.data, first.payload, first.result, first.params, first.detail);
+    const actionName = stringValue(payload?.name, payload?.actionName, payload?.action);
+    return {
+      name,
+      actionName,
+      payloadKeys: payload ? Object.keys(payload).slice(0, 20) : []
+    };
+  }
+  function stringValue(...values) {
+    for (const value of values) {
+      if (typeof value === "string") return value;
+      if (value && typeof value === "object" && typeof value.name === "string") return value.name;
+    }
+    return "";
+  }
+  function objectValue(...values) {
+    return values.find((value) => value && typeof value === "object" && !ArrayBuffer.isView(value) && !(value instanceof ArrayBuffer));
   }
   var MajsoulAdapter = class extends EventTarget {
     constructor({ maxEvents = DEFAULT_MAX_EVENTS, dedupeMs = 25, binarySampleBytes = DEFAULT_BINARY_SAMPLE_BYTES } = {}) {
@@ -1164,6 +1306,8 @@ var MajsoulHelperBundle = (() => {
           this.hookDiagnostics.onmessage = false;
           this.hookDiagnostics.onmessageMode = "non-configurable";
         }
+        this.installDecodedMessageHook();
+        this.startDecodedMessageHookRetry();
         this.dispatchEvent(new CustomEvent("majsoul-helper:install", { detail: this.getInstallDiagnostics() }));
         return true;
       } catch (error) {
@@ -1188,6 +1332,78 @@ var MajsoulHelperBundle = (() => {
       this.installed = false;
       this.installedAt = null;
       this.hookDiagnostics = createHookDiagnostics();
+    }
+    installDecodedMessageHook() {
+      this.hookDiagnostics.decodedMessageAttempts += 1;
+      const wrapper = globalThis.net?.MessageWrapper;
+      if (!wrapper || typeof wrapper !== "object") {
+        this.hookDiagnostics.decodedMessageFailureReason = "net.MessageWrapper is not available yet.";
+        return false;
+      }
+      const originalDecodeMessage = wrapper.decodeMessage;
+      if (typeof originalDecodeMessage !== "function") {
+        this.hookDiagnostics.decodedMessageFailureReason = "net.MessageWrapper.decodeMessage is not available yet.";
+        return false;
+      }
+      if (originalDecodeMessage.__majsoulHelperWrapped) {
+        this.hookDiagnostics.decodedMessage = true;
+        this.hookDiagnostics.decodedMessageMode = "already-wrapped";
+        this.hookDiagnostics.decodedMessageFailureReason = "";
+        return true;
+      }
+      const adapter = this;
+      const descriptor = Object.getOwnPropertyDescriptor(wrapper, "decodeMessage");
+      function wrappedDecodeMessage(...args) {
+        const result = originalDecodeMessage.apply(this, args);
+        adapter.safeRecordDecoded("net.MessageWrapper.decodeMessage", result);
+        return result;
+      }
+      Object.defineProperty(wrappedDecodeMessage, "__majsoulHelperWrapped", {
+        configurable: true,
+        value: true
+      });
+      try {
+        if (descriptor?.configurable) {
+          Object.defineProperty(wrapper, "decodeMessage", {
+            ...descriptor,
+            value: wrappedDecodeMessage
+          });
+        } else {
+          wrapper.decodeMessage = wrappedDecodeMessage;
+        }
+        this.restoreFns.push(() => {
+          try {
+            if (descriptor?.configurable) {
+              Object.defineProperty(wrapper, "decodeMessage", descriptor);
+            } else {
+              wrapper.decodeMessage = originalDecodeMessage;
+            }
+          } catch {
+          }
+        });
+        this.hookDiagnostics.decodedMessage = true;
+        this.hookDiagnostics.decodedMessageMode = "net.MessageWrapper.decodeMessage";
+        this.hookDiagnostics.decodedMessageFailureReason = "";
+        this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.getInstallDiagnostics() }));
+        return true;
+      } catch (error) {
+        this.hookDiagnostics.decodedMessage = false;
+        this.hookDiagnostics.decodedMessageMode = "failed";
+        this.hookDiagnostics.decodedMessageFailureReason = error instanceof Error ? error.message : String(error);
+        return false;
+      }
+    }
+    startDecodedMessageHookRetry() {
+      if (this.hookDiagnostics.decodedMessage || typeof globalThis.setInterval !== "function") return;
+      const timer = globalThis.setInterval(() => {
+        if (this.hookDiagnostics.decodedMessage || this.installDecodedMessageHook()) {
+          globalThis.clearInterval(timer);
+        }
+      }, 250);
+      if (typeof timer?.unref === "function") timer.unref();
+      this.restoreFns.push(() => {
+        globalThis.clearInterval(timer);
+      });
     }
     setPaused(paused) {
       this.paused = Boolean(paused);
@@ -1255,6 +1471,41 @@ var MajsoulHelperBundle = (() => {
       }
       if (typeof Blob !== "undefined" && data instanceof Blob && typeof data.arrayBuffer === "function") {
         this.recordBlobBytes(source, data, url, now);
+      }
+    }
+    recordDecoded(hookName, message) {
+      if (this.paused) return;
+      const parsedEvents = parseDecodedMessage(message);
+      const now = Date.now();
+      const event = {
+        eventId: this.nextEventId++,
+        type: "decoded_message",
+        source: "client_decode",
+        ts: now,
+        payload: summarizeDecodedMessage(message, hookName, parsedEvents)
+      };
+      this.events = [event, ...this.events].slice(0, this.maxEvents);
+      this.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: event }));
+      for (const parsed of parsedEvents) {
+        const parsedEvent = {
+          ...parsed,
+          eventId: this.nextEventId++,
+          source: "client_decode",
+          ts: now,
+          payload: {
+            ...parsed.payload,
+            decodedSummary: event.payload
+          }
+        };
+        this.events = [parsedEvent, ...this.events].slice(0, this.maxEvents);
+        this.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: parsedEvent }));
+      }
+    }
+    safeRecordDecoded(hookName, message) {
+      try {
+        this.recordDecoded(hookName, message);
+      } catch (error) {
+        this.recordCaptureError("client_decode", hookName, error);
       }
     }
     safeRecordRaw(source, data, url = "", messageEvent = null) {
@@ -3067,7 +3318,7 @@ var MajsoulHelperBundle = (() => {
           ${this.selfTestResult ? this.renderSelfTest(this.selfTestResult) : ""}
           <label class="mh-muted">Capture limit <input class="mh-input" data-role="capture-limit" type="number" min="1" max="1000" value="${this.captureLimit}"></label>
           <label class="mh-muted">Binary sample bytes <input class="mh-input" data-role="binary-sample-bytes" type="number" min="16" max="4096" value="${escapeHtml(this.binarySampleBytes ?? installDiagnostics.binarySampleBytes ?? DEFAULT_BINARY_SAMPLE_BYTES2)}"></label>
-          <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes</div>
+          <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes / client decode ${installDiagnostics.hooks?.decodedMessage ? "hooked" : "waiting"}</div>
           <div class="mh-muted" data-role="hook-diagnostics">Hooks: ${escapeHtml(formatHookDiagnostics(installDiagnostics.hooks))}</div>
           <div class="${Number(installDiagnostics.eventBuffer?.droppedBeforeRetained || 0) > 0 ? "mh-warning" : "mh-muted"}" data-role="event-buffer-diagnostics">${escapeHtml(formatEventBufferDiagnostics(installDiagnostics.eventBuffer))}</div>
           ${installDiagnostics.recentSocketUrls?.length ? `<div class="mh-muted">Recent sockets: ${escapeHtml(installDiagnostics.recentSocketUrls.join(" / "))}</div>` : ""}

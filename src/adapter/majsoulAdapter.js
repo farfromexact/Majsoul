@@ -1,4 +1,4 @@
-import { parseBinaryEnvelope, parseBinaryMessage, parseReadableMessage } from "./messageParser.js";
+import { parseBinaryEnvelope, parseBinaryMessage, parseDecodedMessage, parseReadableMessage } from "./messageParser.js";
 import { isStandardGameEvent } from "../core/events.js";
 
 const DEFAULT_BINARY_SAMPLE_BYTES = 2048;
@@ -18,7 +18,11 @@ function createHookDiagnostics() {
     addEventListener: false,
     removeEventListener: false,
     onmessage: false,
-    onmessageMode: "not-installed"
+    onmessageMode: "not-installed",
+    decodedMessage: false,
+    decodedMessageMode: "not-installed",
+    decodedMessageAttempts: 0,
+    decodedMessageFailureReason: ""
   };
 }
 
@@ -160,6 +164,61 @@ function summarizeBytes(bytes, kind = "blob-arraybuffer", { binarySampleBytes = 
     truncated: bytes.byteLength > sampleLength,
     envelope: parseBinaryEnvelope(bytes)
   };
+}
+
+function summarizeDecodedMessage(message, hookName, parsedEvents = []) {
+  const envelope = firstDecodedEnvelopeSummary(message);
+  return {
+    hook: hookName,
+    name: envelope.name,
+    actionName: envelope.actionName,
+    payloadKeys: envelope.payloadKeys,
+    parsedTypes: parsedEvents.map((event) => event.type),
+    parsedCount: parsedEvents.length
+  };
+}
+
+function firstDecodedEnvelopeSummary(message) {
+  const first = Array.isArray(message) ? message[0] : message;
+  if (!first || typeof first !== "object") {
+    return {
+      name: "",
+      actionName: "",
+      payloadKeys: []
+    };
+  }
+  const name = stringValue(
+    first.name,
+    first.method,
+    first.type,
+    first.event,
+    first.msg,
+    first.command,
+    first.actionName,
+    first.action,
+    first.wrapper?.name,
+    first.head?.name,
+    first.message?.name
+  );
+  const payload = objectValue(first.data, first.payload, first.result, first.params, first.detail);
+  const actionName = stringValue(payload?.name, payload?.actionName, payload?.action);
+  return {
+    name,
+    actionName,
+    payloadKeys: payload ? Object.keys(payload).slice(0, 20) : []
+  };
+}
+
+function stringValue(...values) {
+  for (const value of values) {
+    if (typeof value === "string") return value;
+    if (value && typeof value === "object" && typeof value.name === "string") return value.name;
+  }
+  return "";
+}
+
+function objectValue(...values) {
+  return values.find((value) => value && typeof value === "object" && !ArrayBuffer.isView(value) && !(value instanceof ArrayBuffer));
 }
 
 export class MajsoulAdapter extends EventTarget {
@@ -375,6 +434,8 @@ export class MajsoulAdapter extends EventTarget {
       this.hookDiagnostics.onmessage = false;
       this.hookDiagnostics.onmessageMode = "non-configurable";
     }
+      this.installDecodedMessageHook();
+      this.startDecodedMessageHookRetry();
       this.dispatchEvent(new CustomEvent("majsoul-helper:install", { detail: this.getInstallDiagnostics() }));
       return true;
     } catch (error) {
@@ -401,6 +462,83 @@ export class MajsoulAdapter extends EventTarget {
     this.installed = false;
     this.installedAt = null;
     this.hookDiagnostics = createHookDiagnostics();
+  }
+
+  installDecodedMessageHook() {
+    this.hookDiagnostics.decodedMessageAttempts += 1;
+    const wrapper = globalThis.net?.MessageWrapper;
+    if (!wrapper || typeof wrapper !== "object") {
+      this.hookDiagnostics.decodedMessageFailureReason = "net.MessageWrapper is not available yet.";
+      return false;
+    }
+    const originalDecodeMessage = wrapper.decodeMessage;
+    if (typeof originalDecodeMessage !== "function") {
+      this.hookDiagnostics.decodedMessageFailureReason = "net.MessageWrapper.decodeMessage is not available yet.";
+      return false;
+    }
+    if (originalDecodeMessage.__majsoulHelperWrapped) {
+      this.hookDiagnostics.decodedMessage = true;
+      this.hookDiagnostics.decodedMessageMode = "already-wrapped";
+      this.hookDiagnostics.decodedMessageFailureReason = "";
+      return true;
+    }
+
+    const adapter = this;
+    const descriptor = Object.getOwnPropertyDescriptor(wrapper, "decodeMessage");
+    function wrappedDecodeMessage(...args) {
+      const result = originalDecodeMessage.apply(this, args);
+      adapter.safeRecordDecoded("net.MessageWrapper.decodeMessage", result);
+      return result;
+    }
+    Object.defineProperty(wrappedDecodeMessage, "__majsoulHelperWrapped", {
+      configurable: true,
+      value: true
+    });
+
+    try {
+      if (descriptor?.configurable) {
+        Object.defineProperty(wrapper, "decodeMessage", {
+          ...descriptor,
+          value: wrappedDecodeMessage
+        });
+      } else {
+        wrapper.decodeMessage = wrappedDecodeMessage;
+      }
+      this.restoreFns.push(() => {
+        try {
+          if (descriptor?.configurable) {
+            Object.defineProperty(wrapper, "decodeMessage", descriptor);
+          } else {
+            wrapper.decodeMessage = originalDecodeMessage;
+          }
+        } catch {
+          // Best-effort restore only.
+        }
+      });
+      this.hookDiagnostics.decodedMessage = true;
+      this.hookDiagnostics.decodedMessageMode = "net.MessageWrapper.decodeMessage";
+      this.hookDiagnostics.decodedMessageFailureReason = "";
+      this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.getInstallDiagnostics() }));
+      return true;
+    } catch (error) {
+      this.hookDiagnostics.decodedMessage = false;
+      this.hookDiagnostics.decodedMessageMode = "failed";
+      this.hookDiagnostics.decodedMessageFailureReason = error instanceof Error ? error.message : String(error);
+      return false;
+    }
+  }
+
+  startDecodedMessageHookRetry() {
+    if (this.hookDiagnostics.decodedMessage || typeof globalThis.setInterval !== "function") return;
+    const timer = globalThis.setInterval(() => {
+      if (this.hookDiagnostics.decodedMessage || this.installDecodedMessageHook()) {
+        globalThis.clearInterval(timer);
+      }
+    }, 250);
+    if (typeof timer?.unref === "function") timer.unref();
+    this.restoreFns.push(() => {
+      globalThis.clearInterval(timer);
+    });
   }
 
   setPaused(paused) {
@@ -476,6 +614,44 @@ export class MajsoulAdapter extends EventTarget {
 
     if (typeof Blob !== "undefined" && data instanceof Blob && typeof data.arrayBuffer === "function") {
       this.recordBlobBytes(source, data, url, now);
+    }
+  }
+
+  recordDecoded(hookName, message) {
+    if (this.paused) return;
+    const parsedEvents = parseDecodedMessage(message);
+    const now = Date.now();
+    const event = {
+      eventId: this.nextEventId++,
+      type: "decoded_message",
+      source: "client_decode",
+      ts: now,
+      payload: summarizeDecodedMessage(message, hookName, parsedEvents)
+    };
+    this.events = [event, ...this.events].slice(0, this.maxEvents);
+    this.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: event }));
+
+    for (const parsed of parsedEvents) {
+      const parsedEvent = {
+        ...parsed,
+        eventId: this.nextEventId++,
+        source: "client_decode",
+        ts: now,
+        payload: {
+          ...parsed.payload,
+          decodedSummary: event.payload
+        }
+      };
+      this.events = [parsedEvent, ...this.events].slice(0, this.maxEvents);
+      this.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: parsedEvent }));
+    }
+  }
+
+  safeRecordDecoded(hookName, message) {
+    try {
+      this.recordDecoded(hookName, message);
+    } catch (error) {
+      this.recordCaptureError("client_decode", hookName, error);
     }
   }
 

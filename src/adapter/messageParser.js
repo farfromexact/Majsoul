@@ -101,6 +101,96 @@ function extractEnvelope(message) {
   return { name, payload };
 }
 
+function extractDecodedName(value, depth = 0) {
+  if (depth > 3 || value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  if (typeof value !== "object") return undefined;
+
+  const direct = firstDefined(value.name, value.method, value.type, value.event, value.msg, value.command, value.actionName, value.action);
+  if (typeof direct === "string") return direct;
+
+  const typed = firstDefined(
+    readPath(value, ["$type", "fullName"]),
+    readPath(value, ["$type", "name"]),
+    readPath(value, ["constructor", "$type", "fullName"]),
+    readPath(value, ["constructor", "$type", "name"])
+  );
+  if (typeof typed === "string") return typed;
+
+  const nested = firstDefined(
+    readPath(value, ["wrapper", "name"]),
+    readPath(value, ["head", "name"]),
+    readPath(value, ["message", "name"]),
+    readPath(value, ["name", "name"]),
+    readPath(value, ["method", "name"]),
+    readPath(value, ["type", "name"])
+  );
+  const nestedName = extractDecodedName(nested, depth + 1);
+  if (nestedName) return nestedName;
+
+  const constructorName = value.constructor?.name;
+  return /^(Action|Record)[A-Za-z0-9_]+$/.test(constructorName) ? constructorName : undefined;
+}
+
+function decodedPayloadOf(message) {
+  if (!message || typeof message !== "object") return {};
+  return firstDefined(message.data, message.payload, message.result, message.params, message.detail, message);
+}
+
+function decodedStepOf(message, payload) {
+  return firstDefined(
+    message?.step,
+    message?.seq,
+    message?.sequence,
+    payload?.step,
+    payload?.seq,
+    payload?.sequence
+  );
+}
+
+function isActionPrototypeName(name = "") {
+  return String(name).split(".").pop() === "ActionPrototype";
+}
+
+function buildDecodedEnvelope(message) {
+  if (!message || typeof message !== "object") return null;
+  const outerName = extractDecodedName(message);
+  const outerPayload = decodedPayloadOf(message);
+  const actionName = extractDecodedName(outerPayload);
+  const hasNestedActionPayload = Boolean(
+    actionName
+    && outerPayload
+    && typeof outerPayload === "object"
+    && outerPayload !== message
+    && ("data" in outerPayload || "payload" in outerPayload || "result" in outerPayload)
+  );
+  const name = (isActionPrototypeName(outerName) || hasNestedActionPayload) ? actionName : outerName;
+  if (!name) return null;
+  const payload = hasNestedActionPayload || isActionPrototypeName(outerName)
+    ? decodedPayloadOf(outerPayload)
+    : outerPayload;
+  const methodName = isActionPrototypeName(outerName)
+    ? ".lq.ActionPrototype"
+    : outerName;
+
+  return {
+    name,
+    payload: payload && typeof payload === "object" ? payload : {},
+    methodName,
+    actionName: /^(Action|Record)[A-Za-z0-9_]+$/.test(String(name)) ? String(name) : undefined,
+    step: decodedStepOf(message, outerPayload)
+  };
+}
+
+function decodedBinaryEnvelope(envelope) {
+  return definedObject({
+    methodName: envelope.methodName,
+    actionName: envelope.actionName,
+    step: envelope.step,
+    decodedSource: "client"
+  });
+}
+
 function normalizePayload(type, payload, sourceName = "") {
   if (!payload || typeof payload !== "object") return {};
 
@@ -150,8 +240,8 @@ function normalizePayload(type, payload, sourceName = "") {
     return {
       seat: firstDefined(payload.seat, payload.seat_id, payload.who, payload.actor),
       tile: firstDefined(payload.tile, payload.pai, payload.card),
-      tsumogiri: firstDefined(payload.tsumogiri, payload.is_tsumogiri),
-      isRiichi: firstDefined(payload.isRiichi, payload.riichi, payload.lizhi, payload.liqi),
+      tsumogiri: firstDefined(payload.tsumogiri, payload.is_tsumogiri, payload.moqie),
+      isRiichi: firstDefined(payload.isRiichi, payload.is_liqi, payload.riichi, payload.lizhi, payload.liqi),
       doraIndicators: readableDoraIndicators(payload)
     };
   }
@@ -879,6 +969,25 @@ export function parseReadableMessage(data) {
     const type = toEventType(envelope.name);
     if (!type) continue;
     events.push(...expandStandardEvents(type, normalizePayload(type, envelope.payload, envelope.name)));
+  }
+
+  return events;
+}
+
+export function parseDecodedMessage(data) {
+  const messages = Array.isArray(data) ? data : [data];
+  const events = [];
+
+  for (const message of messages) {
+    const envelope = buildDecodedEnvelope(message);
+    if (!envelope) continue;
+    const type = toEventType(envelope.name);
+    if (!type) continue;
+    const payload = normalizePayload(type, envelope.payload, envelope.name);
+    events.push(...expandStandardEvents(type, {
+      ...payload,
+      binaryEnvelope: decodedBinaryEnvelope(envelope)
+    }));
   }
 
   return events;

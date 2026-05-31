@@ -4,6 +4,7 @@ import { DEFAULT_BINARY_SAMPLE_BYTES, DEFAULT_MAX_EVENTS, MajsoulAdapter, summar
 const originalWebSocket = globalThis.WebSocket;
 const originalCustomEvent = globalThis.CustomEvent;
 const originalLocationDescriptor = Object.getOwnPropertyDescriptor(globalThis, "location");
+const originalNet = globalThis.net;
 
 class TestCustomEvent extends Event {
   constructor(type, options = {}) {
@@ -138,6 +139,12 @@ describe("MajsoulAdapter", () => {
     } else {
       delete globalThis.location;
     }
+    if (originalNet === undefined) {
+      delete globalThis.net;
+    } else {
+      globalThis.net = originalNet;
+    }
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -453,6 +460,96 @@ describe("MajsoulAdapter", () => {
       source: "ws_in",
       payload: { seat: 2, tile: "9s" }
     });
+  });
+
+  it("passively records client-decoded MessageWrapper actions", () => {
+    globalThis.WebSocket = FakeWebSocket;
+    globalThis.CustomEvent = TestCustomEvent;
+    const decodedMessage = {
+      name: ".lq.ActionPrototype",
+      data: {
+        name: "ActionDealTile",
+        step: 14,
+        data: { seat: 0, tile: "5p", left_tile_count: 43, doras: ["1z"] }
+      }
+    };
+    globalThis.net = {
+      MessageWrapper: {
+        decodeMessage(data) {
+          return { ...decodedMessage, originalInputLength: data.length };
+        }
+      }
+    };
+    const adapter = new MajsoulAdapter();
+    const events = [];
+    adapter.addEventListener("majsoul-helper:event", (event) => events.push(event.detail));
+    adapter.install();
+
+    const result = globalThis.net.MessageWrapper.decodeMessage(new Uint8Array([1, 2, 3]));
+
+    expect(result.originalInputLength).toBe(3);
+    expect(events.map((event) => event.type)).toEqual(["decoded_message", "draw_tile"]);
+    expect(events[0]).toMatchObject({
+      type: "decoded_message",
+      source: "client_decode",
+      payload: {
+        hook: "net.MessageWrapper.decodeMessage",
+        name: ".lq.ActionPrototype",
+        actionName: "ActionDealTile",
+        parsedTypes: ["draw_tile"]
+      }
+    });
+    expect(events[1]).toMatchObject({
+      type: "draw_tile",
+      source: "client_decode",
+      payload: {
+        seat: 0,
+        tile: "5p",
+        leftTileCount: 43,
+        doraIndicators: ["1z"],
+        binaryEnvelope: {
+          methodName: ".lq.ActionPrototype",
+          actionName: "ActionDealTile",
+          step: 14,
+          decodedSource: "client"
+        }
+      }
+    });
+    expect(adapter.getInstallDiagnostics().hooks).toMatchObject({
+      decodedMessage: true,
+      decodedMessageMode: "net.MessageWrapper.decodeMessage"
+    });
+  });
+
+  it("retries the decoded MessageWrapper hook when net loads after install", () => {
+    vi.useFakeTimers();
+    globalThis.WebSocket = FakeWebSocket;
+    globalThis.CustomEvent = TestCustomEvent;
+    delete globalThis.net;
+    const adapter = new MajsoulAdapter();
+    adapter.install();
+
+    expect(adapter.getInstallDiagnostics().hooks).toMatchObject({
+      decodedMessage: false,
+      decodedMessageFailureReason: "net.MessageWrapper is not available yet."
+    });
+
+    globalThis.net = {
+      MessageWrapper: {
+        decodeMessage() {
+          return { name: "ActionDiscardTile", data: { seat: 1, tile: "7s" } };
+        }
+      }
+    };
+    vi.advanceTimersByTime(250);
+    globalThis.net.MessageWrapper.decodeMessage(new Uint8Array([1]));
+
+    expect(adapter.getRecentEvents()[0]).toMatchObject({
+      type: "discard_tile",
+      source: "client_decode",
+      payload: { seat: 1, tile: "7s" }
+    });
+    adapter.uninstall();
   });
 
   it("deduplicates the same inbound message observed through multiple handlers", () => {
