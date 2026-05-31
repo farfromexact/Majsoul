@@ -3,6 +3,7 @@ import { isStandardGameEvent } from "./events.js";
 
 const INITIAL_STATE = {
   hand: [],
+  handKnown: false,
   drawnTile: null,
   melds: [[], [], [], []],
   discards: [[], [], [], []],
@@ -22,6 +23,7 @@ const INITIAL_STATE = {
   scores: [25000, 25000, 25000, 25000],
   scoresKnown: false,
   invalidTiles: [],
+  partialStateWarnings: [],
   events: []
 };
 
@@ -52,6 +54,7 @@ export class GameState {
     switch (event.type) {
       case "round_start": {
         const nextStateDiagnostics = { invalidTiles: [] };
+        const hand = sanitizeTiles(payload.tiles ?? [], nextStateDiagnostics, "round_start.tiles");
         this.reset({
           round: payload.round ?? null,
           chang: normalizeRoundIndex(payload.chang),
@@ -62,7 +65,8 @@ export class GameState {
           seatWind: payload.seatWind ?? seatWindFromJu(payload.ju) ?? null,
           scores: payload.scores ?? [25000, 25000, 25000, 25000],
           scoresKnown: Array.isArray(payload.scores) && payload.scores.length > 0,
-          hand: sanitizeTiles(payload.tiles ?? [], nextStateDiagnostics, "round_start.tiles"),
+          hand,
+          handKnown: hand.length > 0,
           melds: sanitizeSeatMelds(payload.melds, nextStateDiagnostics, "round_start.melds"),
           discards: sanitizeSeatTiles(payload.discards, nextStateDiagnostics, "round_start.discards"),
           doraIndicators: sanitizeTiles(payload.doraIndicators ?? [], nextStateDiagnostics, "round_start.doraIndicators"),
@@ -70,12 +74,14 @@ export class GameState {
           leftTileCount: payload.leftTileCount ?? null,
           riichi: normalizeRiichi(payload.riichi),
           invalidTiles: nextStateDiagnostics.invalidTiles,
+          partialStateWarnings: buildRoundStartPartialWarnings(payload),
           events: this.state.events
         });
         break;
       }
       case "deal_hand":
         this.state.hand = sanitizeTiles(payload.tiles || [], this.state, "deal_hand.tiles");
+        this.state.handKnown = this.state.hand.length > 0;
         this.state.drawnTile = null;
         break;
       case "draw_tile": {
@@ -114,15 +120,19 @@ export class GameState {
             const drawnTile = this.state.drawnTile;
             const discardIndex = tileToIndex(tile);
             let removed = false;
-            this.state.hand = this.state.hand.filter((tile) => {
-              if (!removed && tileToIndex(tile) === discardIndex) {
-                removed = true;
-                return false;
-              }
-              return true;
-            });
+            if (this.state.handKnown) {
+              this.state.hand = this.state.hand.filter((tile) => {
+                if (!removed && tileToIndex(tile) === discardIndex) {
+                  removed = true;
+                  return false;
+                }
+                return true;
+              });
+            }
             if (drawnTile) {
-              this.state.hand.push(drawnTile);
+              if (this.state.handKnown) {
+                this.state.hand.push(drawnTile);
+              }
               this.state.drawnTile = null;
             }
           }
@@ -417,6 +427,9 @@ function buildWarnings(state) {
   if (state.drawnTile && !state.hand.length) {
     warnings.push("drawnTile exists without base hand");
   }
+  for (const warning of state.partialStateWarnings || []) {
+    warnings.push(warning);
+  }
   for (const invalid of state.invalidTiles || []) {
     warnings.push(`ignored invalid tile ${invalid.tile} from ${invalid.context}`);
   }
@@ -433,4 +446,24 @@ function buildWarnings(state) {
     }
   });
   return warnings;
+}
+
+function buildRoundStartPartialWarnings(payload = {}) {
+  if (!isActionNewRoundPayload(payload)) return [];
+
+  const missing = [];
+  if (!Array.isArray(payload.tiles) || payload.tiles.length === 0) missing.push("hand");
+  if (payload.round === undefined && payload.chang === undefined && payload.ju === undefined) missing.push("round metadata");
+  if (!Array.isArray(payload.doraIndicators) || payload.doraIndicators.length === 0) missing.push("dora indicators");
+  if (!Array.isArray(payload.scores) || payload.scores.length === 0) missing.push("scores");
+
+  return missing.length
+    ? [`partial live state: round_start missing decoded ${missing.join(", ")}`]
+    : [];
+}
+
+function isActionNewRoundPayload(payload = {}) {
+  const envelope = payload.binaryEnvelope || {};
+  return envelope.methodName === ".lq.ActionPrototype"
+    && (envelope.actionName === "ActionNewRound" || envelope.actionName === "RecordNewRound");
 }

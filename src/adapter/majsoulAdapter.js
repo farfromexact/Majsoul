@@ -1,9 +1,9 @@
 import { parseBinaryEnvelope, parseBinaryMessage, parseDecodedMessage, parseReadableMessage } from "./messageParser.js";
 import { isStandardGameEvent } from "../core/events.js";
 
-const DEFAULT_BINARY_SAMPLE_BYTES = 4096;
-const DEFAULT_MAX_EVENTS = 3000;
-const MAX_CAPTURE_EVENTS = 3000;
+const DEFAULT_BINARY_SAMPLE_BYTES = 65536;
+const DEFAULT_MAX_EVENTS = 10000;
+const MAX_CAPTURE_EVENTS = 10000;
 const RUNTIME_SHAPE_KEY_LIMIT = 40;
 const RUNTIME_SHAPE_ACCESSOR_LIMIT = 20;
 const SELF_TEST_DISCARD_SAMPLE =
@@ -1525,7 +1525,7 @@ function normalizeMaxEvents(value, fallback = DEFAULT_MAX_EVENTS) {
 function normalizeSampleBytes(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) return DEFAULT_BINARY_SAMPLE_BYTES;
-  return Math.max(16, Math.min(4096, Math.floor(number)));
+  return Math.max(16, Math.min(DEFAULT_BINARY_SAMPLE_BYTES, Math.floor(number)));
 }
 
 export { DEFAULT_BINARY_SAMPLE_BYTES, DEFAULT_MAX_EVENTS, MAX_CAPTURE_EVENTS, summarizeMessage };

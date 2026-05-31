@@ -37,13 +37,13 @@ describe("built userscript runtime", () => {
     window.eval(userscript);
 
     expect(window.__majsoulHelper).toBeTruthy();
-    expect(window.__majsoulHelper.version).toBe("0.2.9");
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.9");
-    expect(window.__majsoulHelper.adapter.getInstallDiagnostics().maxEvents).toBe(3000);
-    expect(window.__majsoulHelper.adapter.getInstallDiagnostics().binarySampleBytes).toBe(4096);
+    expect(window.__majsoulHelper.version).toBe("0.2.11");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.11");
+    expect(window.__majsoulHelper.adapter.getInstallDiagnostics().maxEvents).toBe(10000);
+    expect(window.__majsoulHelper.adapter.getInstallDiagnostics().binarySampleBytes).toBe(65536);
     expect(document.querySelector("#majsoul-helper-overlay")).toBeTruthy();
-    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("3000");
-    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("4096");
+    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("10000");
+    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("65536");
 
     const socket = new window.WebSocket("wss://example.test/socket");
     socket.send("hello");
@@ -89,10 +89,10 @@ describe("built userscript runtime", () => {
     window.eval(userscript);
 
     expect(oldAdapter.uninstall).toHaveBeenCalledTimes(1);
-    expect(window.__majsoulHelper.version).toBe("0.2.9");
+    expect(window.__majsoulHelper.version).toBe("0.2.11");
     expect(window.__majsoulHelper.adapter).not.toBe(oldAdapter);
     expect(document.querySelectorAll("#majsoul-helper-overlay")).toHaveLength(1);
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.9");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.11");
   });
 
   it("sets the helper singleton before the DOM is ready", () => {
@@ -159,11 +159,11 @@ describe("built userscript runtime", () => {
     window.eval(userscript);
 
     expect(window.__majsoulHelper.adapter.getInstallDiagnostics()).toMatchObject({
-      binarySampleBytes: 4096,
-      maxEvents: 3000
+      binarySampleBytes: 65536,
+      maxEvents: 10000
     });
-    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("4096");
-    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("3000");
+    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("65536");
+    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("10000");
   });
 
   it("records page-decoded MessageWrapper events in the generated userscript", () => {

@@ -317,7 +317,7 @@ function buildStateDiagnostics(events, gameState) {
   return {
     eventCounts,
     stateUpdated: {
-      hand: Boolean(gameState.hand?.length),
+      hand: Boolean(gameState.handKnown && gameState.hand?.length),
       drawnTile: Boolean(gameState.drawnTile) || ownDrawTileEventsWithValidTile.length > 0,
       discards: Boolean(gameState.discards?.some((tiles) => tiles.length)),
       melds: meldCount > 0,
@@ -513,6 +513,7 @@ function buildStateCoverage(acceptance, stateDiagnostics) {
 function compareLiveGameState(liveGameState, replayedState) {
   const keys = [
     "hand",
+    "handKnown",
     "drawnTile",
     "melds",
     "discards",
@@ -811,7 +812,7 @@ function buildAcceptance({ diagnostics, events, gameState, liveStateComparison =
     drawTileSeatParsed: hasEventWithValidSeat(events, "draw_tile"),
     discardTileParsed: eventTypes.includes("discard_tile"),
     discardTileSeatParsed: hasEventWithValidSeat(events, "discard_tile"),
-    gameStateHandUpdated: Boolean(gameState.hand?.length),
+    gameStateHandUpdated: Boolean(gameState.handKnown && gameState.hand?.length),
     gameStateRoundMetadataUpdated: gameState.chang !== null || gameState.ju !== null || gameState.round !== null,
     gameStateDrawnTileUpdated: Boolean(gameState.drawnTile) || hasOwnDrawTileWithValidTile(events),
     gameStateDiscardsUpdated: Boolean(gameState.discards?.some((tiles) => tiles.length)),

@@ -12,7 +12,7 @@ class FakeAdapter extends EventTarget {
     this.events = [];
     this.installDiagnostics = {
       installed: true,
-      helperVersion: "0.2.9",
+      helperVersion: "0.2.11",
       installAttempts: 1,
       installedAt: "2026-05-25T00:00:00.000Z",
       installFailureReason: "",
@@ -42,8 +42,8 @@ class FakeAdapter extends EventTarget {
       },
       socketsCreated: 1,
       recentSocketUrls: ["wss://example.test/socket"],
-      maxEvents: 3000,
-      binarySampleBytes: 4096,
+      maxEvents: 10000,
+      binarySampleBytes: 65536,
       eventBuffer: {
         maxEvents: 300,
         retainedEvents: 0,
@@ -53,7 +53,7 @@ class FakeAdapter extends EventTarget {
         droppedBeforeRetained: 0
       }
     };
-    this.maxEvents = 3000;
+    this.maxEvents = 10000;
   }
 
   setPaused(paused) {
@@ -65,14 +65,14 @@ class FakeAdapter extends EventTarget {
 
   setBinarySampleBytes(value) {
     const number = Number(value);
-    this.installDiagnostics.binarySampleBytes = Math.max(16, Math.min(4096, Math.floor(number)));
+    this.installDiagnostics.binarySampleBytes = Math.max(16, Math.min(65536, Math.floor(number)));
     this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.installDiagnostics }));
     return this.installDiagnostics.binarySampleBytes;
   }
 
   setMaxEvents(value) {
     const number = Number(value);
-    this.maxEvents = Math.max(1, Math.min(3000, Math.floor(number)));
+    this.maxEvents = Math.max(1, Math.min(10000, Math.floor(number)));
     this.events = this.events.slice(0, this.maxEvents);
     this.installDiagnostics.maxEvents = this.maxEvents;
     this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.installDiagnostics }));
@@ -144,7 +144,7 @@ describe("Overlay", () => {
     overlay.mount();
 
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Training/review use only");
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.9");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.11");
     expect(document.querySelector('[data-action="realtime-advice"]').checked).toBe(false);
     expect(document.querySelector('[data-role="realtime-risk"]')).toBeNull();
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Enter a hand or enable realtime advice");
@@ -679,34 +679,34 @@ describe("Overlay", () => {
     expect(document.activeElement).toBe(captureLimit);
     expect(captureLimit.value).toBe("");
 
-    captureLimit.value = "3000";
+    captureLimit.value = "10000";
     captureLimit.dispatchEvent(new Event("input", { bubbles: true }));
     adapter.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: rawEvent }));
     captureLimit = document.querySelector('[data-role="capture-limit"]');
     expect(document.activeElement).toBe(captureLimit);
-    expect(captureLimit.value).toBe("3000");
+    expect(captureLimit.value).toBe("10000");
     captureLimit.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
 
-    expect(adapter.maxEvents).toBe(3000);
+    expect(adapter.maxEvents).toBe(10000);
     expect(JSON.parse(window.localStorage.getItem("majsoul-helper-config"))).toMatchObject({
-      captureLimit: 3000
+      captureLimit: 10000
     });
 
     let sampleBytes = document.querySelector('[data-role="binary-sample-bytes"]');
     expect(sampleBytes.type).toBe("text");
     expect(sampleBytes.inputMode).toBe("numeric");
     sampleBytes.focus();
-    sampleBytes.value = "4x096";
+    sampleBytes.value = "65x536";
     sampleBytes.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(sampleBytes.value).toBe("4096");
+    expect(sampleBytes.value).toBe("65536");
     adapter.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: rawEvent }));
     sampleBytes = document.querySelector('[data-role="binary-sample-bytes"]');
-    expect(sampleBytes.value).toBe("4096");
+    expect(sampleBytes.value).toBe("65536");
     sampleBytes.dispatchEvent(new Event("change", { bubbles: true }));
 
-    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(4096);
+    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(65536);
     expect(JSON.parse(window.localStorage.getItem("majsoul-helper-config"))).toMatchObject({
-      binarySampleBytes: 4096
+      binarySampleBytes: 65536
     });
   });
 
@@ -738,13 +738,13 @@ describe("Overlay", () => {
 
     let sampleBytes = document.querySelector('[data-role="binary-sample-bytes"]');
     sampleBytes.focus();
-    sampleBytes.value = "4096";
+    sampleBytes.value = "65536";
     sampleBytes.dispatchEvent(new Event("input", { bubbles: true }));
     expect(pageInput).not.toHaveBeenCalled();
     sampleBytes.dispatchEvent(new Event("change", { bubbles: true }));
 
     expect(pageChange).not.toHaveBeenCalled();
-    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(4096);
+    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(65536);
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("capture paused");
   });
 
@@ -754,16 +754,16 @@ describe("Overlay", () => {
     const overlay = new Overlay({ adapter, gameState: new GameState() });
     overlay.mount();
 
-    expect(adapter.maxEvents).toBe(3000);
-    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(4096);
-    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("3000");
-    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("4096");
+    expect(adapter.maxEvents).toBe(10000);
+    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(65536);
+    expect(document.querySelector('[data-role="capture-limit"]').value).toBe("10000");
+    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("65536");
     expect(JSON.parse(window.localStorage.getItem("majsoul-helper-config"))).toMatchObject({
-      captureLimit: 3000,
-      binarySampleBytes: 4096
+      captureLimit: 10000,
+      binarySampleBytes: 65536
     });
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.9");
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 4096 bytes");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.11");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 65536 bytes");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("page dispatch hooked");
   });
 
@@ -917,7 +917,7 @@ describe("Overlay", () => {
     overlay.mount();
 
     const text = document.querySelector("#majsoul-helper-overlay").textContent;
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("Install: not installed / capture running / attempts 3 / WebSocket missing / sockets 0 / sample 4096 bytes");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("Install: not installed / capture running / attempts 3 / WebSocket missing / sockets 0 / sample 65536 bytes");
     expect(document.querySelector('[data-role="hook-diagnostics"]').textContent).toContain("constructor off / statics 3 copied / 1 failed / prototype.constructor not-installed / send off / addEventListener off / removeEventListener off / onmessage off (not-installed)");
     expect(document.querySelector('[data-role="runtime-diagnostics"]').textContent).toContain("Runtime:");
     expect(text).toContain("WebSocket is not available on this page context yet.");
@@ -1013,9 +1013,9 @@ describe("Overlay", () => {
     const overlay = new Overlay({ adapter, gameState: new GameState() });
     overlay.mount();
 
-    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(4096);
-    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("4096");
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 4096 bytes");
+    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(65536);
+    expect(document.querySelector('[data-role="binary-sample-bytes"]').value).toBe("65536");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 65536 bytes");
   });
 
   it("renders unparsed ActionPrototype names in debug", () => {

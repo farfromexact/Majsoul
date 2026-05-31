@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.2.9
+// @version      0.2.11
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -954,9 +954,9 @@ var MajsoulHelperBundle = (() => {
   }
 
   // src/adapter/majsoulAdapter.js
-  var DEFAULT_BINARY_SAMPLE_BYTES = 4096;
-  var DEFAULT_MAX_EVENTS = 3e3;
-  var MAX_CAPTURE_EVENTS = 3e3;
+  var DEFAULT_BINARY_SAMPLE_BYTES = 65536;
+  var DEFAULT_MAX_EVENTS = 1e4;
+  var MAX_CAPTURE_EVENTS = 1e4;
   var RUNTIME_SHAPE_KEY_LIMIT = 40;
   var RUNTIME_SHAPE_ACCESSOR_LIMIT = 20;
   var SELF_TEST_DISCARD_SAMPLE = "01 0a 13 2e 6c 71 2e 41 63 74 69 6f 6e 50 72 6f 74 6f 74 79 70 65 12 1f 08 35 12 11 41 63 74 69 6f 6e 44 69 73 63 61 72 64 54 69 6c 65 1a 08 08 03 12 02 39 73 28 01";
@@ -2218,7 +2218,7 @@ var MajsoulHelperBundle = (() => {
   function normalizeSampleBytes(value) {
     const number = Number(value);
     if (!Number.isFinite(number) || number <= 0) return DEFAULT_BINARY_SAMPLE_BYTES;
-    return Math.max(16, Math.min(4096, Math.floor(number)));
+    return Math.max(16, Math.min(DEFAULT_BINARY_SAMPLE_BYTES, Math.floor(number)));
   }
 
   // src/core/tile.js
@@ -2310,6 +2310,7 @@ var MajsoulHelperBundle = (() => {
   // src/core/gameState.js
   var INITIAL_STATE = {
     hand: [],
+    handKnown: false,
     drawnTile: null,
     melds: [[], [], [], []],
     discards: [[], [], [], []],
@@ -2329,6 +2330,7 @@ var MajsoulHelperBundle = (() => {
     scores: [25e3, 25e3, 25e3, 25e3],
     scoresKnown: false,
     invalidTiles: [],
+    partialStateWarnings: [],
     events: []
   };
   var GameState = class {
@@ -2354,6 +2356,7 @@ var MajsoulHelperBundle = (() => {
       switch (event.type) {
         case "round_start": {
           const nextStateDiagnostics = { invalidTiles: [] };
+          const hand = sanitizeTiles(payload.tiles ?? [], nextStateDiagnostics, "round_start.tiles");
           this.reset({
             round: payload.round ?? null,
             chang: normalizeRoundIndex(payload.chang),
@@ -2364,7 +2367,8 @@ var MajsoulHelperBundle = (() => {
             seatWind: payload.seatWind ?? seatWindFromJu(payload.ju) ?? null,
             scores: payload.scores ?? [25e3, 25e3, 25e3, 25e3],
             scoresKnown: Array.isArray(payload.scores) && payload.scores.length > 0,
-            hand: sanitizeTiles(payload.tiles ?? [], nextStateDiagnostics, "round_start.tiles"),
+            hand,
+            handKnown: hand.length > 0,
             melds: sanitizeSeatMelds(payload.melds, nextStateDiagnostics, "round_start.melds"),
             discards: sanitizeSeatTiles(payload.discards, nextStateDiagnostics, "round_start.discards"),
             doraIndicators: sanitizeTiles(payload.doraIndicators ?? [], nextStateDiagnostics, "round_start.doraIndicators"),
@@ -2372,12 +2376,14 @@ var MajsoulHelperBundle = (() => {
             leftTileCount: payload.leftTileCount ?? null,
             riichi: normalizeRiichi(payload.riichi),
             invalidTiles: nextStateDiagnostics.invalidTiles,
+            partialStateWarnings: buildRoundStartPartialWarnings(payload),
             events: this.state.events
           });
           break;
         }
         case "deal_hand":
           this.state.hand = sanitizeTiles(payload.tiles || [], this.state, "deal_hand.tiles");
+          this.state.handKnown = this.state.hand.length > 0;
           this.state.drawnTile = null;
           break;
         case "draw_tile": {
@@ -2416,15 +2422,19 @@ var MajsoulHelperBundle = (() => {
               const drawnTile = this.state.drawnTile;
               const discardIndex = tileToIndex(tile);
               let removed = false;
-              this.state.hand = this.state.hand.filter((tile2) => {
-                if (!removed && tileToIndex(tile2) === discardIndex) {
-                  removed = true;
-                  return false;
-                }
-                return true;
-              });
+              if (this.state.handKnown) {
+                this.state.hand = this.state.hand.filter((tile2) => {
+                  if (!removed && tileToIndex(tile2) === discardIndex) {
+                    removed = true;
+                    return false;
+                  }
+                  return true;
+                });
+              }
               if (drawnTile) {
-                this.state.hand.push(drawnTile);
+                if (this.state.handKnown) {
+                  this.state.hand.push(drawnTile);
+                }
                 this.state.drawnTile = null;
               }
             }
@@ -2682,6 +2692,9 @@ var MajsoulHelperBundle = (() => {
     if (state.drawnTile && !state.hand.length) {
       warnings.push("drawnTile exists without base hand");
     }
+    for (const warning of state.partialStateWarnings || []) {
+      warnings.push(warning);
+    }
     for (const invalid of state.invalidTiles || []) {
       warnings.push(`ignored invalid tile ${invalid.tile} from ${invalid.context}`);
     }
@@ -2697,6 +2710,19 @@ var MajsoulHelperBundle = (() => {
       }
     });
     return warnings;
+  }
+  function buildRoundStartPartialWarnings(payload = {}) {
+    if (!isActionNewRoundPayload(payload)) return [];
+    const missing = [];
+    if (!Array.isArray(payload.tiles) || payload.tiles.length === 0) missing.push("hand");
+    if (payload.round === void 0 && payload.chang === void 0 && payload.ju === void 0) missing.push("round metadata");
+    if (!Array.isArray(payload.doraIndicators) || payload.doraIndicators.length === 0) missing.push("dora indicators");
+    if (!Array.isArray(payload.scores) || payload.scores.length === 0) missing.push("scores");
+    return missing.length ? [`partial live state: round_start missing decoded ${missing.join(", ")}`] : [];
+  }
+  function isActionNewRoundPayload(payload = {}) {
+    const envelope = payload.binaryEnvelope || {};
+    return envelope.methodName === ".lq.ActionPrototype" && (envelope.actionName === "ActionNewRound" || envelope.actionName === "RecordNewRound");
   }
 
   // src/core/shanten.js
@@ -3110,9 +3136,9 @@ var MajsoulHelperBundle = (() => {
   // src/ui/overlay.js
   var STORAGE_KEY = "majsoul-helper-config";
   var OVERLAY_CAPTURE_NOTE = "Majsoul Helper capture export. Contains message summaries/samples plus liveGameState, liveDebugSummary, liveMvpGate, liveSafetySettings, and liveRealPagePreflight snapshots copied from the overlay; no messages were modified by the helper.";
-  var DEFAULT_BINARY_SAMPLE_BYTES2 = 4096;
-  var DEFAULT_CAPTURE_LIMIT = 3e3;
-  var MAX_CAPTURE_LIMIT = 3e3;
+  var DEFAULT_BINARY_SAMPLE_BYTES2 = 65536;
+  var DEFAULT_CAPTURE_LIMIT = 1e4;
+  var MAX_CAPTURE_LIMIT = 1e4;
   var OVERLAY_EVENT_SHIELD_TYPES = [
     "pointerdown",
     "pointerup",
@@ -3222,7 +3248,7 @@ var MajsoulHelperBundle = (() => {
   function normalizeBinarySampleBytes(value, fallback = DEFAULT_BINARY_SAMPLE_BYTES2) {
     const number = Number(value);
     if (!Number.isFinite(number) || number <= 0) return fallback;
-    return Math.max(16, Math.min(4096, Math.floor(number)));
+    return Math.max(16, Math.min(DEFAULT_BINARY_SAMPLE_BYTES2, Math.floor(number)));
   }
   function renderSeatState(state) {
     return [0, 1, 2, 3].map((seat) => {
@@ -3659,7 +3685,7 @@ var MajsoulHelperBundle = (() => {
       drawTileSeatParsed: hasEventWithValidSeat(events, "draw_tile"),
       discardTileParsed: events.some((event) => event.type === "discard_tile"),
       discardTileSeatParsed: hasEventWithValidSeat(events, "discard_tile"),
-      gameStateHandUpdated: Boolean(state.hand?.length),
+      gameStateHandUpdated: Boolean(state.handKnown && state.hand?.length),
       gameStateRoundMetadataUpdated: state.chang !== null || state.ju !== null || state.round !== null,
       gameStateDrawnTileUpdated: Boolean(state.drawnTile) || hasOwnDrawTileWithValidTile(events),
       gameStateDiscardsUpdated: Boolean(state.discards?.some((tiles) => tiles.length)),
@@ -3912,8 +3938,8 @@ var MajsoulHelperBundle = (() => {
             <button class="mh-button" data-action="self-test">Self-test</button>
           </div>
           ${this.selfTestResult ? this.renderSelfTest(this.selfTestResult) : ""}
-          <label class="mh-muted">Capture limit <input class="mh-input" data-role="capture-limit" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Capture limit, 1 to 3000" value="${escapeHtml(captureLimitValue)}"></label>
-          <label class="mh-muted">Binary sample bytes <input class="mh-input" data-role="binary-sample-bytes" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Binary sample bytes, 16 to 4096" value="${escapeHtml(binarySampleValue)}"></label>
+          <label class="mh-muted">Capture limit <input class="mh-input" data-role="capture-limit" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Capture limit, 1 to 10000" value="${escapeHtml(captureLimitValue)}"></label>
+          <label class="mh-muted">Binary sample bytes <input class="mh-input" data-role="binary-sample-bytes" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Binary sample bytes, 16 to 65536" value="${escapeHtml(binarySampleValue)}"></label>
           <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"}${helperVersion ? ` / v${escapeHtml(helperVersion)}` : ""} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes / client decode ${installDiagnostics.hooks?.decodedMessage ? "hooked" : "waiting"} / page dispatch ${installDiagnostics.hooks?.decodedDispatcher ? "hooked" : "waiting"}</div>
           <div class="mh-muted" data-role="hook-diagnostics">Hooks: ${escapeHtml(formatHookDiagnostics(installDiagnostics.hooks))}</div>
           <div class="mh-muted" data-role="runtime-diagnostics">Runtime: ${escapeHtml(formatRuntimeDiagnostics(installDiagnostics.runtime))}</div>
@@ -4240,7 +4266,7 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
-  var HELPER_VERSION = "0.2.9";
+  var HELPER_VERSION = "0.2.11";
   function upgradedStoredNumber(value, fallback) {
     const number = Number(value);
     if (!Number.isFinite(number) || number <= 0) return fallback;

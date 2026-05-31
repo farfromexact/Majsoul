@@ -150,6 +150,29 @@ describe("GameState", () => {
     expect(state.currentTurn).toBeNull();
   });
 
+  it("does not invent a base hand from own draw/discard events before the hand is known", () => {
+    const gameState = new GameState();
+    gameState.applyEvent({
+      type: "draw_tile",
+      source: "ws_in",
+      ts: 1,
+      payload: { seat: 0, tile: "9s" }
+    });
+    gameState.applyEvent({
+      type: "discard_tile",
+      source: "ws_in",
+      ts: 2,
+      payload: { seat: 0, tile: "1m" }
+    });
+
+    const state = gameState.getVisibleState();
+    expect(state.handKnown).toBe(false);
+    expect(state.hand).toEqual([]);
+    expect(state.drawnTile).toBeNull();
+    expect(state.discards[0]).toEqual(["1m"]);
+    expect(state.warnings).toEqual([]);
+  });
+
   it("clears current turn after a discard event", () => {
     const gameState = new GameState();
     gameState.applyEvent({
@@ -796,6 +819,47 @@ describe("GameState", () => {
       "hand has 15 tiles",
       "1m appears 5 times"
     ]);
+  });
+
+  it("warns when live ActionNewRound did not restore a complete state", () => {
+    const gameState = new GameState();
+    gameState.applyEvent({
+      type: "round_start",
+      source: "ws_in",
+      ts: 1,
+      payload: {
+        tiles: [],
+        doraIndicators: [],
+        scores: [],
+        binaryEnvelope: {
+          methodName: ".lq.ActionPrototype",
+          actionName: "ActionNewRound"
+        }
+      }
+    });
+
+    expect(gameState.getVisibleState().warnings).toEqual([
+      "partial live state: round_start missing decoded hand, round metadata, dora indicators, scores"
+    ]);
+
+    gameState.applyEvent({
+      type: "round_start",
+      source: "ws_in",
+      ts: 2,
+      payload: {
+        chang: 0,
+        ju: 1,
+        tiles: ["1m", "2m", "3m"],
+        doraIndicators: ["4p"],
+        scores: [25000, 25000, 25000, 25000],
+        binaryEnvelope: {
+          methodName: ".lq.ActionPrototype",
+          actionName: "ActionNewRound"
+        }
+      }
+    });
+
+    expect(gameState.getVisibleState().warnings).toEqual([]);
   });
 
   it("tracks riichi and round end metadata", () => {
