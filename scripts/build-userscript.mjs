@@ -1,10 +1,12 @@
 import { build } from "esbuild";
 import { writeFile } from "node:fs/promises";
 
+const version = "0.2.0";
+
 const banner = `// ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.1.0
+// @version      ${version}
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*

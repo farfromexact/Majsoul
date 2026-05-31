@@ -24,6 +24,7 @@ describe("built userscript runtime", () => {
     window.WebSocket = FakeWebSocket;
     delete window.__majsoulHelper;
     delete window.net;
+    delete window.Laya;
   });
 
   afterEach(() => {
@@ -36,7 +37,8 @@ describe("built userscript runtime", () => {
     window.eval(userscript);
 
     expect(window.__majsoulHelper).toBeTruthy();
-    expect(window.__majsoulHelper.version).toBe("0.1.0");
+    expect(window.__majsoulHelper.version).toBe("0.2.0");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.0");
     expect(window.__majsoulHelper.adapter.getInstallDiagnostics().maxEvents).toBe(500);
     expect(window.__majsoulHelper.adapter.getInstallDiagnostics().binarySampleBytes).toBe(2048);
     expect(document.querySelector("#majsoul-helper-overlay")).toBeTruthy();
@@ -170,6 +172,35 @@ describe("built userscript runtime", () => {
       payload: { seat: 2, tile: "8p" }
     });
     expect(window.__majsoulHelper.adapter.getInstallDiagnostics().hooks.decodedMessage).toBe(true);
+  });
+
+  it("records page-dispatched Laya decoded events in the generated userscript", () => {
+    class FakeEventDispatcher {
+      event(type, data) {
+        this.lastEvent = { type, data };
+        return "ok";
+      }
+    }
+    window.Laya = { EventDispatcher: FakeEventDispatcher };
+    const userscript = readFileSync("majsoul-helper.user.js", "utf8");
+
+    window.eval(userscript);
+    const dispatcher = new window.Laya.EventDispatcher();
+    dispatcher.event("OnNotify", {
+      name: "ActionDealTile",
+      data: { seat: 0, tile: "4m", leftTileCount: 34 }
+    });
+    dispatcher.event("display", { visible: true });
+
+    const events = window.__majsoulHelper.adapter.getRecentEvents();
+    expect(events.map((event) => event.type)).toEqual(["draw_tile", "decoded_message"]);
+    expect(events[0]).toMatchObject({
+      type: "draw_tile",
+      source: "client_decode",
+      payload: { seat: 0, tile: "4m", leftTileCount: 34 }
+    });
+    expect(window.__majsoulHelper.adapter.getInstallDiagnostics().hooks.decodedDispatcher).toBe(true);
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("page dispatch hooked");
   });
 
   it("runs the generated userscript self-test without recording fake traffic", () => {

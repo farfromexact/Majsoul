@@ -5,6 +5,7 @@ import { parseTiles } from "./core/tile.js";
 import { Overlay } from "./ui/overlay.js";
 
 const STORAGE_KEY = "majsoul-helper-config";
+const HELPER_VERSION = "0.2.0";
 
 function readConfig() {
   try {
@@ -18,12 +19,13 @@ function boot() {
   if (window.__majsoulHelper?.version) return window.__majsoulHelper;
   const config = readConfig();
   const adapter = new MajsoulAdapter({
+    helperVersion: HELPER_VERSION,
     binarySampleBytes: config.binarySampleBytes,
     maxEvents: config.captureLimit
   });
   const gameState = new GameState();
   const helper = {
-    version: "0.1.0",
+    version: HELPER_VERSION,
     adapter,
     gameState,
     overlay: null,

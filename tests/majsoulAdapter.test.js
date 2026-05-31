@@ -5,6 +5,7 @@ const originalWebSocket = globalThis.WebSocket;
 const originalCustomEvent = globalThis.CustomEvent;
 const originalLocationDescriptor = Object.getOwnPropertyDescriptor(globalThis, "location");
 const originalNet = globalThis.net;
+const originalLaya = globalThis.Laya;
 
 class TestCustomEvent extends Event {
   constructor(type, options = {}) {
@@ -143,6 +144,11 @@ describe("MajsoulAdapter", () => {
       delete globalThis.net;
     } else {
       globalThis.net = originalNet;
+    }
+    if (originalLaya === undefined) {
+      delete globalThis.Laya;
+    } else {
+      globalThis.Laya = originalLaya;
     }
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -548,6 +554,58 @@ describe("MajsoulAdapter", () => {
       type: "discard_tile",
       source: "client_decode",
       payload: { seat: 1, tile: "7s" }
+    });
+    adapter.uninstall();
+  });
+
+  it("passively records page-dispatched decoded Laya events without recording unrelated UI events", () => {
+    globalThis.WebSocket = FakeWebSocket;
+    globalThis.CustomEvent = TestCustomEvent;
+    class FakeEventDispatcher {
+      event(type, data, ...args) {
+        this.lastNativeEvent = { type, data, args };
+        return "native-result";
+      }
+    }
+    globalThis.Laya = { EventDispatcher: FakeEventDispatcher };
+    const adapter = new MajsoulAdapter();
+    const events = [];
+    adapter.addEventListener("majsoul-helper:event", (event) => events.push(event.detail));
+    adapter.install();
+
+    const dispatcher = new globalThis.Laya.EventDispatcher();
+    expect(dispatcher.event("OnNotify", {
+      name: "ActionDealTile",
+      data: { seat: 0, tile: "2m", leftTileCount: 42 }
+    }, "extra")).toBe("native-result");
+    dispatcher.event("display", { visible: true });
+
+    expect(dispatcher.lastNativeEvent).toMatchObject({
+      type: "display",
+      data: { visible: true }
+    });
+    expect(events.map((event) => event.type)).toEqual(["decoded_message", "draw_tile"]);
+    expect(events[0]).toMatchObject({
+      type: "decoded_message",
+      source: "client_decode",
+      payload: {
+        hook: "Laya.EventDispatcher.event",
+        name: "ActionDealTile",
+        parsedTypes: ["draw_tile"]
+      }
+    });
+    expect(events[1]).toMatchObject({
+      type: "draw_tile",
+      source: "client_decode",
+      payload: {
+        seat: 0,
+        tile: "2m",
+        leftTileCount: 42
+      }
+    });
+    expect(adapter.getInstallDiagnostics().hooks).toMatchObject({
+      decodedDispatcher: true,
+      decodedDispatcherMode: "Laya.EventDispatcher.event"
     });
     adapter.uninstall();
   });

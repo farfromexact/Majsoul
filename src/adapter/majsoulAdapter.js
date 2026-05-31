@@ -22,7 +22,11 @@ function createHookDiagnostics() {
     decodedMessage: false,
     decodedMessageMode: "not-installed",
     decodedMessageAttempts: 0,
-    decodedMessageFailureReason: ""
+    decodedMessageFailureReason: "",
+    decodedDispatcher: false,
+    decodedDispatcherMode: "not-installed",
+    decodedDispatcherAttempts: 0,
+    decodedDispatcherFailureReason: ""
   };
 }
 
@@ -221,9 +225,51 @@ function objectValue(...values) {
   return values.find((value) => value && typeof value === "object" && !ArrayBuffer.isView(value) && !(value instanceof ArrayBuffer));
 }
 
+function isDecodedGameName(value = "") {
+  const text = String(value || "");
+  return (
+    /(^|\.)(Action|Record)[A-Za-z0-9_]+$/.test(text)
+    || /^\.?lq\.(ActionPrototype|GameRestore|ResSyncGame|ResEnterGame)$/.test(text)
+  );
+}
+
+function hasDecodedGameName(value, depth = 0) {
+  if (depth > 4 || value === undefined || value === null) return false;
+  if (typeof value === "string") return isDecodedGameName(value);
+  if (typeof value !== "object") return false;
+
+  const direct = [
+    value.name,
+    value.method,
+    value.type,
+    value.event,
+    value.msg,
+    value.command,
+    value.actionName,
+    value.action,
+    value.wrapper?.name,
+    value.head?.name,
+    value.message?.name,
+    value.constructor?.name
+  ];
+  if (direct.some((entry) => isDecodedGameName(entry))) return true;
+
+  return [
+    value.data,
+    value.payload,
+    value.result,
+    value.params,
+    value.detail,
+    value.message,
+    value.wrapper,
+    value.head
+  ].some((entry) => hasDecodedGameName(entry, depth + 1));
+}
+
 export class MajsoulAdapter extends EventTarget {
-  constructor({ maxEvents = DEFAULT_MAX_EVENTS, dedupeMs = 25, binarySampleBytes = DEFAULT_BINARY_SAMPLE_BYTES } = {}) {
+  constructor({ maxEvents = DEFAULT_MAX_EVENTS, dedupeMs = 25, binarySampleBytes = DEFAULT_BINARY_SAMPLE_BYTES, helperVersion = "" } = {}) {
     super();
+    this.helperVersion = helperVersion;
     this.maxEvents = normalizeMaxEvents(maxEvents);
     this.dedupeMs = dedupeMs;
     this.binarySampleBytes = normalizeSampleBytes(binarySampleBytes);
@@ -434,10 +480,12 @@ export class MajsoulAdapter extends EventTarget {
       this.hookDiagnostics.onmessage = false;
       this.hookDiagnostics.onmessageMode = "non-configurable";
     }
-      this.installDecodedMessageHook();
-      this.startDecodedMessageHookRetry();
-      this.dispatchEvent(new CustomEvent("majsoul-helper:install", { detail: this.getInstallDiagnostics() }));
-      return true;
+    this.installDecodedMessageHook();
+    this.startDecodedMessageHookRetry();
+    this.installDecodedDispatcherHook();
+    this.startDecodedDispatcherHookRetry();
+    this.dispatchEvent(new CustomEvent("majsoul-helper:install", { detail: this.getInstallDiagnostics() }));
+    return true;
     } catch (error) {
       const restoreFns = this.restoreFns.splice(restoreStart).reverse();
       for (const restore of restoreFns) {
@@ -541,6 +589,85 @@ export class MajsoulAdapter extends EventTarget {
     });
   }
 
+  installDecodedDispatcherHook() {
+    this.hookDiagnostics.decodedDispatcherAttempts += 1;
+    const dispatcherPrototype = globalThis.Laya?.EventDispatcher?.prototype;
+    if (!dispatcherPrototype || typeof dispatcherPrototype !== "object") {
+      this.hookDiagnostics.decodedDispatcherFailureReason = "Laya.EventDispatcher is not available yet.";
+      return false;
+    }
+    const originalEvent = dispatcherPrototype.event;
+    if (typeof originalEvent !== "function") {
+      this.hookDiagnostics.decodedDispatcherFailureReason = "Laya.EventDispatcher.prototype.event is not available yet.";
+      return false;
+    }
+    if (originalEvent.__majsoulHelperWrapped) {
+      this.hookDiagnostics.decodedDispatcher = true;
+      this.hookDiagnostics.decodedDispatcherMode = "already-wrapped";
+      this.hookDiagnostics.decodedDispatcherFailureReason = "";
+      return true;
+    }
+
+    const adapter = this;
+    const descriptor = Object.getOwnPropertyDescriptor(dispatcherPrototype, "event");
+    function wrappedLayaEvent(type, data, ...args) {
+      adapter.safeRecordDecoded("Laya.EventDispatcher.event", data, {
+        requireGameLike: true,
+        eventType: type
+      });
+      return originalEvent.call(this, type, data, ...args);
+    }
+    Object.defineProperty(wrappedLayaEvent, "__majsoulHelperWrapped", {
+      configurable: true,
+      value: true
+    });
+
+    try {
+      if (descriptor?.configurable) {
+        Object.defineProperty(dispatcherPrototype, "event", {
+          ...descriptor,
+          value: wrappedLayaEvent
+        });
+      } else {
+        dispatcherPrototype.event = wrappedLayaEvent;
+      }
+      this.restoreFns.push(() => {
+        try {
+          if (descriptor?.configurable) {
+            Object.defineProperty(dispatcherPrototype, "event", descriptor);
+          } else {
+            dispatcherPrototype.event = originalEvent;
+          }
+        } catch {
+          // Best-effort restore only.
+        }
+      });
+      this.hookDiagnostics.decodedDispatcher = true;
+      this.hookDiagnostics.decodedDispatcherMode = "Laya.EventDispatcher.event";
+      this.hookDiagnostics.decodedDispatcherFailureReason = "";
+      this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.getInstallDiagnostics() }));
+      return true;
+    } catch (error) {
+      this.hookDiagnostics.decodedDispatcher = false;
+      this.hookDiagnostics.decodedDispatcherMode = "failed";
+      this.hookDiagnostics.decodedDispatcherFailureReason = error instanceof Error ? error.message : String(error);
+      return false;
+    }
+  }
+
+  startDecodedDispatcherHookRetry() {
+    if (this.hookDiagnostics.decodedDispatcher || typeof globalThis.setInterval !== "function") return;
+    const timer = globalThis.setInterval(() => {
+      if (this.hookDiagnostics.decodedDispatcher || this.installDecodedDispatcherHook()) {
+        globalThis.clearInterval(timer);
+      }
+    }, 250);
+    if (typeof timer?.unref === "function") timer.unref();
+    this.restoreFns.push(() => {
+      globalThis.clearInterval(timer);
+    });
+  }
+
   setPaused(paused) {
     this.paused = Boolean(paused);
     this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.getInstallDiagnostics() }));
@@ -617,9 +744,12 @@ export class MajsoulAdapter extends EventTarget {
     }
   }
 
-  recordDecoded(hookName, message) {
+  recordDecoded(hookName, message, { requireGameLike = false, eventType = "" } = {}) {
     if (this.paused) return;
     const parsedEvents = parseDecodedMessage(message);
+    if (requireGameLike && !parsedEvents.length && !hasDecodedGameName(eventType) && !hasDecodedGameName(message)) {
+      return;
+    }
     const now = Date.now();
     const event = {
       eventId: this.nextEventId++,
@@ -647,9 +777,9 @@ export class MajsoulAdapter extends EventTarget {
     }
   }
 
-  safeRecordDecoded(hookName, message) {
+  safeRecordDecoded(hookName, message, options) {
     try {
-      this.recordDecoded(hookName, message);
+      this.recordDecoded(hookName, message, options);
     } catch (error) {
       this.recordCaptureError("client_decode", hookName, error);
     }
@@ -728,6 +858,7 @@ export class MajsoulAdapter extends EventTarget {
   getInstallDiagnostics({ events = this.events } = {}) {
     return {
       installed: this.installed,
+      helperVersion: this.helperVersion,
       installAttempts: this.installAttempts,
       installedAt: this.installedAt,
       installFailureReason: this.installFailureReason,
@@ -756,6 +887,7 @@ export class MajsoulAdapter extends EventTarget {
     return {
       exportedAt: new Date().toISOString(),
       formatVersion: 1,
+      helperVersion: this.helperVersion,
       limit: normalizedLimit,
       note: "Majsoul Helper capture export. Contains message summaries/samples only; no messages were modified by the helper.",
       page: getPageDiagnostics(),

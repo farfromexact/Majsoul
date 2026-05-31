@@ -301,7 +301,9 @@ function formatHookDiagnostics(hooks = {}) {
     `send ${hooks.send ? "ok" : "off"}`,
     `addEventListener ${hooks.addEventListener ? "ok" : "off"}`,
     `removeEventListener ${hooks.removeEventListener ? "ok" : "off"}`,
-    `onmessage ${hooks.onmessage ? "ok" : "off"} (${hooks.onmessageMode || "unknown"})`
+    `onmessage ${hooks.onmessage ? "ok" : "off"} (${hooks.onmessageMode || "unknown"})`,
+    `client decode ${hooks.decodedMessage ? "ok" : "waiting"} (${hooks.decodedMessageMode || "unknown"})`,
+    `page dispatch ${hooks.decodedDispatcher ? "ok" : "waiting"} (${hooks.decodedDispatcherMode || "unknown"})`
   ].filter(Boolean);
   return parts.join(" / ");
 }
@@ -735,6 +737,7 @@ export class Overlay {
     const installDiagnostics = typeof this.adapter.getInstallDiagnostics === "function"
       ? this.adapter.getInstallDiagnostics()
       : { installed: this.adapter.installed, webSocketAvailable: typeof WebSocket !== "undefined" };
+    const helperVersion = installDiagnostics.helperVersion || this.adapter.helperVersion || "";
     const liveMvpGate = buildLiveMvpGate(recentEvents, state, debugSummary);
     const liveSafetySettings = buildLiveSafetySettings({
       realtimeAdvice: this.realtimeAdvice,
@@ -754,7 +757,7 @@ export class Overlay {
 
     this.root.innerHTML = `
       <div class="mh-header">
-        <div class="mh-title">Majsoul Helper</div>
+        <div class="mh-title">Majsoul Helper${helperVersion ? ` <span class="mh-muted">v${escapeHtml(helperVersion)}</span>` : ""}</div>
         <div class="mh-actions">
           <button class="mh-button" data-action="toggle-capture">${this.adapter.paused ? "Resume" : "Pause"}</button>
           <button class="mh-button" data-action="collapse">Collapse</button>
@@ -809,7 +812,7 @@ export class Overlay {
           ${this.selfTestResult ? this.renderSelfTest(this.selfTestResult) : ""}
           <label class="mh-muted">Capture limit <input class="mh-input" data-role="capture-limit" type="number" min="1" max="1000" value="${this.captureLimit}"></label>
           <label class="mh-muted">Binary sample bytes <input class="mh-input" data-role="binary-sample-bytes" type="number" min="16" max="4096" value="${escapeHtml(this.binarySampleBytes ?? installDiagnostics.binarySampleBytes ?? DEFAULT_BINARY_SAMPLE_BYTES)}"></label>
-          <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes / client decode ${installDiagnostics.hooks?.decodedMessage ? "hooked" : "waiting"}</div>
+          <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"}${helperVersion ? ` / v${escapeHtml(helperVersion)}` : ""} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes / client decode ${installDiagnostics.hooks?.decodedMessage ? "hooked" : "waiting"} / page dispatch ${installDiagnostics.hooks?.decodedDispatcher ? "hooked" : "waiting"}</div>
           <div class="mh-muted" data-role="hook-diagnostics">Hooks: ${escapeHtml(formatHookDiagnostics(installDiagnostics.hooks))}</div>
           <div class="${Number(installDiagnostics.eventBuffer?.droppedBeforeRetained || 0) > 0 ? "mh-warning" : "mh-muted"}" data-role="event-buffer-diagnostics">${escapeHtml(formatEventBufferDiagnostics(installDiagnostics.eventBuffer))}</div>
           ${installDiagnostics.recentSocketUrls?.length ? `<div class="mh-muted">Recent sockets: ${escapeHtml(installDiagnostics.recentSocketUrls.join(" / "))}</div>` : ""}

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.1.0
+// @version      0.2.0
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -924,7 +924,11 @@ var MajsoulHelperBundle = (() => {
       decodedMessage: false,
       decodedMessageMode: "not-installed",
       decodedMessageAttempts: 0,
-      decodedMessageFailureReason: ""
+      decodedMessageFailureReason: "",
+      decodedDispatcher: false,
+      decodedDispatcherMode: "not-installed",
+      decodedDispatcherAttempts: 0,
+      decodedDispatcherFailureReason: ""
     };
   }
   function copyConstructorStatics(target, source) {
@@ -1111,9 +1115,44 @@ var MajsoulHelperBundle = (() => {
   function objectValue(...values) {
     return values.find((value) => value && typeof value === "object" && !ArrayBuffer.isView(value) && !(value instanceof ArrayBuffer));
   }
+  function isDecodedGameName(value = "") {
+    const text = String(value || "");
+    return /(^|\.)(Action|Record)[A-Za-z0-9_]+$/.test(text) || /^\.?lq\.(ActionPrototype|GameRestore|ResSyncGame|ResEnterGame)$/.test(text);
+  }
+  function hasDecodedGameName(value, depth = 0) {
+    if (depth > 4 || value === void 0 || value === null) return false;
+    if (typeof value === "string") return isDecodedGameName(value);
+    if (typeof value !== "object") return false;
+    const direct = [
+      value.name,
+      value.method,
+      value.type,
+      value.event,
+      value.msg,
+      value.command,
+      value.actionName,
+      value.action,
+      value.wrapper?.name,
+      value.head?.name,
+      value.message?.name,
+      value.constructor?.name
+    ];
+    if (direct.some((entry) => isDecodedGameName(entry))) return true;
+    return [
+      value.data,
+      value.payload,
+      value.result,
+      value.params,
+      value.detail,
+      value.message,
+      value.wrapper,
+      value.head
+    ].some((entry) => hasDecodedGameName(entry, depth + 1));
+  }
   var MajsoulAdapter = class extends EventTarget {
-    constructor({ maxEvents = DEFAULT_MAX_EVENTS, dedupeMs = 25, binarySampleBytes = DEFAULT_BINARY_SAMPLE_BYTES } = {}) {
+    constructor({ maxEvents = DEFAULT_MAX_EVENTS, dedupeMs = 25, binarySampleBytes = DEFAULT_BINARY_SAMPLE_BYTES, helperVersion = "" } = {}) {
       super();
+      this.helperVersion = helperVersion;
       this.maxEvents = normalizeMaxEvents(maxEvents);
       this.dedupeMs = dedupeMs;
       this.binarySampleBytes = normalizeSampleBytes(binarySampleBytes);
@@ -1308,6 +1347,8 @@ var MajsoulHelperBundle = (() => {
         }
         this.installDecodedMessageHook();
         this.startDecodedMessageHookRetry();
+        this.installDecodedDispatcherHook();
+        this.startDecodedDispatcherHookRetry();
         this.dispatchEvent(new CustomEvent("majsoul-helper:install", { detail: this.getInstallDiagnostics() }));
         return true;
       } catch (error) {
@@ -1405,6 +1446,80 @@ var MajsoulHelperBundle = (() => {
         globalThis.clearInterval(timer);
       });
     }
+    installDecodedDispatcherHook() {
+      this.hookDiagnostics.decodedDispatcherAttempts += 1;
+      const dispatcherPrototype = globalThis.Laya?.EventDispatcher?.prototype;
+      if (!dispatcherPrototype || typeof dispatcherPrototype !== "object") {
+        this.hookDiagnostics.decodedDispatcherFailureReason = "Laya.EventDispatcher is not available yet.";
+        return false;
+      }
+      const originalEvent = dispatcherPrototype.event;
+      if (typeof originalEvent !== "function") {
+        this.hookDiagnostics.decodedDispatcherFailureReason = "Laya.EventDispatcher.prototype.event is not available yet.";
+        return false;
+      }
+      if (originalEvent.__majsoulHelperWrapped) {
+        this.hookDiagnostics.decodedDispatcher = true;
+        this.hookDiagnostics.decodedDispatcherMode = "already-wrapped";
+        this.hookDiagnostics.decodedDispatcherFailureReason = "";
+        return true;
+      }
+      const adapter = this;
+      const descriptor = Object.getOwnPropertyDescriptor(dispatcherPrototype, "event");
+      function wrappedLayaEvent(type, data, ...args) {
+        adapter.safeRecordDecoded("Laya.EventDispatcher.event", data, {
+          requireGameLike: true,
+          eventType: type
+        });
+        return originalEvent.call(this, type, data, ...args);
+      }
+      Object.defineProperty(wrappedLayaEvent, "__majsoulHelperWrapped", {
+        configurable: true,
+        value: true
+      });
+      try {
+        if (descriptor?.configurable) {
+          Object.defineProperty(dispatcherPrototype, "event", {
+            ...descriptor,
+            value: wrappedLayaEvent
+          });
+        } else {
+          dispatcherPrototype.event = wrappedLayaEvent;
+        }
+        this.restoreFns.push(() => {
+          try {
+            if (descriptor?.configurable) {
+              Object.defineProperty(dispatcherPrototype, "event", descriptor);
+            } else {
+              dispatcherPrototype.event = originalEvent;
+            }
+          } catch {
+          }
+        });
+        this.hookDiagnostics.decodedDispatcher = true;
+        this.hookDiagnostics.decodedDispatcherMode = "Laya.EventDispatcher.event";
+        this.hookDiagnostics.decodedDispatcherFailureReason = "";
+        this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.getInstallDiagnostics() }));
+        return true;
+      } catch (error) {
+        this.hookDiagnostics.decodedDispatcher = false;
+        this.hookDiagnostics.decodedDispatcherMode = "failed";
+        this.hookDiagnostics.decodedDispatcherFailureReason = error instanceof Error ? error.message : String(error);
+        return false;
+      }
+    }
+    startDecodedDispatcherHookRetry() {
+      if (this.hookDiagnostics.decodedDispatcher || typeof globalThis.setInterval !== "function") return;
+      const timer = globalThis.setInterval(() => {
+        if (this.hookDiagnostics.decodedDispatcher || this.installDecodedDispatcherHook()) {
+          globalThis.clearInterval(timer);
+        }
+      }, 250);
+      if (typeof timer?.unref === "function") timer.unref();
+      this.restoreFns.push(() => {
+        globalThis.clearInterval(timer);
+      });
+    }
     setPaused(paused) {
       this.paused = Boolean(paused);
       this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.getInstallDiagnostics() }));
@@ -1473,9 +1588,12 @@ var MajsoulHelperBundle = (() => {
         this.recordBlobBytes(source, data, url, now);
       }
     }
-    recordDecoded(hookName, message) {
+    recordDecoded(hookName, message, { requireGameLike = false, eventType = "" } = {}) {
       if (this.paused) return;
       const parsedEvents = parseDecodedMessage(message);
+      if (requireGameLike && !parsedEvents.length && !hasDecodedGameName(eventType) && !hasDecodedGameName(message)) {
+        return;
+      }
       const now = Date.now();
       const event = {
         eventId: this.nextEventId++,
@@ -1501,9 +1619,9 @@ var MajsoulHelperBundle = (() => {
         this.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: parsedEvent }));
       }
     }
-    safeRecordDecoded(hookName, message) {
+    safeRecordDecoded(hookName, message, options) {
       try {
-        this.recordDecoded(hookName, message);
+        this.recordDecoded(hookName, message, options);
       } catch (error) {
         this.recordCaptureError("client_decode", hookName, error);
       }
@@ -1575,6 +1693,7 @@ var MajsoulHelperBundle = (() => {
     getInstallDiagnostics({ events = this.events } = {}) {
       return {
         installed: this.installed,
+        helperVersion: this.helperVersion,
         installAttempts: this.installAttempts,
         installedAt: this.installedAt,
         installFailureReason: this.installFailureReason,
@@ -1601,6 +1720,7 @@ var MajsoulHelperBundle = (() => {
       return {
         exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
         formatVersion: 1,
+        helperVersion: this.helperVersion,
         limit: normalizedLimit,
         note: "Majsoul Helper capture export. Contains message summaries/samples only; no messages were modified by the helper.",
         page: getPageDiagnostics(),
@@ -2877,7 +2997,9 @@ var MajsoulHelperBundle = (() => {
       `send ${hooks.send ? "ok" : "off"}`,
       `addEventListener ${hooks.addEventListener ? "ok" : "off"}`,
       `removeEventListener ${hooks.removeEventListener ? "ok" : "off"}`,
-      `onmessage ${hooks.onmessage ? "ok" : "off"} (${hooks.onmessageMode || "unknown"})`
+      `onmessage ${hooks.onmessage ? "ok" : "off"} (${hooks.onmessageMode || "unknown"})`,
+      `client decode ${hooks.decodedMessage ? "ok" : "waiting"} (${hooks.decodedMessageMode || "unknown"})`,
+      `page dispatch ${hooks.decodedDispatcher ? "ok" : "waiting"} (${hooks.decodedDispatcherMode || "unknown"})`
     ].filter(Boolean);
     return parts.join(" / ");
   }
@@ -3245,6 +3367,7 @@ var MajsoulHelperBundle = (() => {
       const debugSummary = summarizeDebugEvents(recentEvents);
       const actionDiagnostics = summarizeActionDiagnostics(recentEvents);
       const installDiagnostics = typeof this.adapter.getInstallDiagnostics === "function" ? this.adapter.getInstallDiagnostics() : { installed: this.adapter.installed, webSocketAvailable: typeof WebSocket !== "undefined" };
+      const helperVersion = installDiagnostics.helperVersion || this.adapter.helperVersion || "";
       const liveMvpGate = buildLiveMvpGate(recentEvents, state, debugSummary);
       const liveSafetySettings = buildLiveSafetySettings({
         realtimeAdvice: this.realtimeAdvice,
@@ -3263,7 +3386,7 @@ var MajsoulHelperBundle = (() => {
       });
       this.root.innerHTML = `
       <div class="mh-header">
-        <div class="mh-title">Majsoul Helper</div>
+        <div class="mh-title">Majsoul Helper${helperVersion ? ` <span class="mh-muted">v${escapeHtml(helperVersion)}</span>` : ""}</div>
         <div class="mh-actions">
           <button class="mh-button" data-action="toggle-capture">${this.adapter.paused ? "Resume" : "Pause"}</button>
           <button class="mh-button" data-action="collapse">Collapse</button>
@@ -3318,7 +3441,7 @@ var MajsoulHelperBundle = (() => {
           ${this.selfTestResult ? this.renderSelfTest(this.selfTestResult) : ""}
           <label class="mh-muted">Capture limit <input class="mh-input" data-role="capture-limit" type="number" min="1" max="1000" value="${this.captureLimit}"></label>
           <label class="mh-muted">Binary sample bytes <input class="mh-input" data-role="binary-sample-bytes" type="number" min="16" max="4096" value="${escapeHtml(this.binarySampleBytes ?? installDiagnostics.binarySampleBytes ?? DEFAULT_BINARY_SAMPLE_BYTES2)}"></label>
-          <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes / client decode ${installDiagnostics.hooks?.decodedMessage ? "hooked" : "waiting"}</div>
+          <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"}${helperVersion ? ` / v${escapeHtml(helperVersion)}` : ""} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes / client decode ${installDiagnostics.hooks?.decodedMessage ? "hooked" : "waiting"} / page dispatch ${installDiagnostics.hooks?.decodedDispatcher ? "hooked" : "waiting"}</div>
           <div class="mh-muted" data-role="hook-diagnostics">Hooks: ${escapeHtml(formatHookDiagnostics(installDiagnostics.hooks))}</div>
           <div class="${Number(installDiagnostics.eventBuffer?.droppedBeforeRetained || 0) > 0 ? "mh-warning" : "mh-muted"}" data-role="event-buffer-diagnostics">${escapeHtml(formatEventBufferDiagnostics(installDiagnostics.eventBuffer))}</div>
           ${installDiagnostics.recentSocketUrls?.length ? `<div class="mh-muted">Recent sockets: ${escapeHtml(installDiagnostics.recentSocketUrls.join(" / "))}</div>` : ""}
@@ -3568,6 +3691,7 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
+  var HELPER_VERSION = "0.2.0";
   function readConfig2() {
     try {
       return JSON.parse(window.localStorage.getItem(STORAGE_KEY2) || "{}");
@@ -3579,12 +3703,13 @@ var MajsoulHelperBundle = (() => {
     if (window.__majsoulHelper?.version) return window.__majsoulHelper;
     const config = readConfig2();
     const adapter = new MajsoulAdapter({
+      helperVersion: HELPER_VERSION,
       binarySampleBytes: config.binarySampleBytes,
       maxEvents: config.captureLimit
     });
     const gameState = new GameState();
     const helper = {
-      version: "0.1.0",
+      version: HELPER_VERSION,
       adapter,
       gameState,
       overlay: null,
