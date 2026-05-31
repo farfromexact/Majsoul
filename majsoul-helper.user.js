@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.2.7
+// @version      0.2.8
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -447,6 +447,23 @@ var MajsoulHelperBundle = (() => {
   function tileStringFields(fields, id) {
     return stringFields(fields, id).filter(tileLike);
   }
+  function decodeUnityEncodedDiscardPayload(bytes) {
+    if (!bytes || bytes.length !== 14) return null;
+    const seat = bytes[1] ^ 126;
+    const tile = String.fromCharCode(bytes[4] ^ 102, bytes[5] ^ 212);
+    const tsumogiri = bytes[9] ^ 202;
+    if (!Number.isInteger(seat) || seat < 0 || seat > 3) return null;
+    if (!tileLike(tile)) return null;
+    if (![0, 1].includes(tsumogiri)) return null;
+    return {
+      seat,
+      tile,
+      tsumogiri: Boolean(tsumogiri),
+      isRiichi: false,
+      doraIndicators: [],
+      payloadCodec: "unity-xor-discard-short"
+    };
+  }
   function nestedPayloadFields(fields, id) {
     return fields.lengthDelimited.filter((entry) => entry.field === id && entry.bytes?.length).map((entry) => parseProtobufEnvelope(entry.bytes).fields);
   }
@@ -642,13 +659,15 @@ var MajsoulHelperBundle = (() => {
     const fields = decoded.fields;
     const allTiles = fields.lengthDelimited.map((entry) => entry.text).filter(tileLike);
     if (actionName === "ActionDiscardTile" || actionName === "RecordDiscardTile") {
-      return {
+      const decoded2 = {
         seat: numericField(fields, 1),
         tile: stringField(fields, 2),
         tsumogiri: Boolean(numericField(fields, 5)),
         isRiichi: Boolean(firstDefined(numericField(fields, 3), numericField(fields, 9))),
         doraIndicators: tileStringFields(fields, 8)
       };
+      if (decoded2.seat !== void 0 || decoded2.tile || decoded2.doraIndicators.length) return decoded2;
+      return decodeUnityEncodedDiscardPayload(bytes) || decoded2;
     }
     if (actionName === "ActionDealTile" || actionName === "RecordDealTile") {
       const riichi = decodeLiQiSuccess(fields, 5);
@@ -4196,7 +4215,7 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
-  var HELPER_VERSION = "0.2.7";
+  var HELPER_VERSION = "0.2.8";
   function upgradedStoredNumber(value, fallback) {
     const number = Number(value);
     if (!Number.isFinite(number) || number <= 0) return fallback;

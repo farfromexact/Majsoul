@@ -130,6 +130,71 @@ describe("replayCapture", () => {
     });
   });
 
+  it("dedupes stale live parsed events when raw replay now extracts more fields", () => {
+    const encodedDiscardPayload = [0x95, 0x7e, 0x63, 0x68, 0x55, 0xae, 0x4e, 0x9c, 0x75, 0xca, 0x99, 0x9e, 0xdf, 0x93];
+    const actionPrototypePayload = [
+      ...protobufVarint(1, 6),
+      ...protobufString(2, "ActionDiscardTile"),
+      ...protobufBytes(3, encodedDiscardPayload)
+    ];
+    const frame = new Uint8Array([
+      1,
+      ...protobufString(1, ".lq.ActionPrototype"),
+      ...protobufBytes(2, actionPrototypePayload)
+    ]);
+    const rawSummary = {
+      kind: "Uint8Array",
+      length: frame.byteLength,
+      preview: `Uint8Array(${frame.byteLength})`,
+      sample: bytesToHex(frame),
+      truncated: false
+    };
+    const liveCapture = {
+      exportedAt: "2026-05-31T00:00:00.000Z",
+      formatVersion: 1,
+      events: [
+        {
+          eventId: 1,
+          type: "raw_message",
+          source: "ws_in",
+          ts: 11,
+          payload: rawSummary
+        },
+        {
+          eventId: 2,
+          type: "discard_tile",
+          source: "ws_in",
+          ts: 11,
+          payload: {
+            tsumogiri: false,
+            isRiichi: false,
+            doraIndicators: [],
+            binaryEnvelope: { methodName: ".lq.ActionPrototype", actionName: "ActionDiscardTile" },
+            rawSummary
+          }
+        }
+      ]
+    };
+
+    const { events, replayDedupe } = replayCaptureWithDiagnostics(liveCapture);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "discard_tile",
+      payload: {
+        seat: 0,
+        tile: "3z",
+        payloadCodec: "unity-xor-discard-short"
+      }
+    });
+    expect(replayDedupe).toMatchObject({
+      rawParsedEvents: 1,
+      liveParsedEvents: 1,
+      skippedLiveParsedEvents: 1,
+      replayedEvents: 1
+    });
+  });
+
   it("uses eventId ordering when replaying captures that include stable event ids", () => {
     const discardPayload = [
       ...protobufVarint(1, 1),

@@ -25,6 +25,10 @@ function protobufVarint(field, value) {
   return [...encodeVarint(field << 3 | 0), ...encodeVarint(value)];
 }
 
+function hexBytes(hex) {
+  return hex.split(/\s+/).filter(Boolean).map((part) => Number.parseInt(part, 16));
+}
+
 describe("messageParser", () => {
   it("maps known Mahjong Soul style action names to standardized event types", () => {
     expect(toEventType(".lq.ActionNewRound")).toBe("round_start");
@@ -431,6 +435,46 @@ describe("messageParser", () => {
         tsumogiri: true,
         binaryEnvelope: expect.objectContaining({
           actionName: "RecordDiscardTile"
+        })
+      }
+    });
+  });
+
+  it("decodes Unity WebGL short encoded discard payloads", () => {
+    const encodedDiscardPayload = hexBytes("95 7e 63 68 55 ae 4e 9c 75 ca 99 9e df 93");
+    const actionPrototypePayload = [
+      ...protobufVarint(1, 6),
+      ...protobufString(2, "ActionDiscardTile"),
+      ...protobufBytes(3, encodedDiscardPayload)
+    ];
+    const frame = new Uint8Array([
+      1,
+      ...protobufString(1, ".lq.ActionPrototype"),
+      ...protobufBytes(2, actionPrototypePayload)
+    ]);
+
+    expect(parseBinaryEnvelope(frame)).toMatchObject({
+      actionName: "ActionDiscardTile",
+      step: 6,
+      actionPayloadFields: {
+        varints: [],
+        strings: [],
+        tileStrings: []
+      }
+    });
+    expect(parseBinaryMessage(frame)[0]).toMatchObject({
+      type: "discard_tile",
+      payload: {
+        seat: 0,
+        tile: "3z",
+        tsumogiri: false,
+        isRiichi: false,
+        doraIndicators: [],
+        payloadCodec: "unity-xor-discard-short",
+        binaryEnvelope: expect.objectContaining({
+          methodName: ".lq.ActionPrototype",
+          actionName: "ActionDiscardTile",
+          step: 6
         })
       }
     });

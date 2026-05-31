@@ -511,6 +511,26 @@ function tileStringFields(fields, id) {
   return stringFields(fields, id).filter(tileLike);
 }
 
+function decodeUnityEncodedDiscardPayload(bytes) {
+  if (!bytes || bytes.length !== 14) return null;
+  const seat = bytes[1] ^ 0x7e;
+  const tile = String.fromCharCode(bytes[4] ^ 0x66, bytes[5] ^ 0xd4);
+  const tsumogiri = bytes[9] ^ 0xca;
+
+  if (!Number.isInteger(seat) || seat < 0 || seat > 3) return null;
+  if (!tileLike(tile)) return null;
+  if (![0, 1].includes(tsumogiri)) return null;
+
+  return {
+    seat,
+    tile,
+    tsumogiri: Boolean(tsumogiri),
+    isRiichi: false,
+    doraIndicators: [],
+    payloadCodec: "unity-xor-discard-short"
+  };
+}
+
 function nestedPayloadFields(fields, id) {
   return fields.lengthDelimited
     .filter((entry) => entry.field === id && entry.bytes?.length)
@@ -739,13 +759,15 @@ function decodeSimpleActionPayload(actionName, bytes) {
   const allTiles = fields.lengthDelimited.map((entry) => entry.text).filter(tileLike);
 
   if (actionName === "ActionDiscardTile" || actionName === "RecordDiscardTile") {
-    return {
+    const decoded = {
       seat: numericField(fields, 1),
       tile: stringField(fields, 2),
       tsumogiri: Boolean(numericField(fields, 5)),
       isRiichi: Boolean(firstDefined(numericField(fields, 3), numericField(fields, 9))),
       doraIndicators: tileStringFields(fields, 8)
     };
+    if (decoded.seat !== undefined || decoded.tile || decoded.doraIndicators.length) return decoded;
+    return decodeUnityEncodedDiscardPayload(bytes) || decoded;
   }
 
   if (actionName === "ActionDealTile" || actionName === "RecordDealTile") {

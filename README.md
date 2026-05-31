@@ -26,6 +26,8 @@ If the page context does not expose `WebSocket` at the first document-start tick
 
 Current `https://game.maj-soul.com/1/` builds load as Unity WebGL rather than the older JS/Laya runtime. In that case the debug panel's `Runtime` line should show `Unity WebGL detected`; `client decode` and `page dispatch` are not the expected path. Seeing `.lq.ActionPrototype` action names but no usable action payload fields means the helper has reached the passive raw layer, but state restoration still needs a Unity runtime decoded hook or an action payload decoder. The helper passively observes `createUnityInstance` so captures can confirm whether the Unity instance and Module are visible for the next decoder-mapping step. Newer captures also include a bounded, read-only shape summary of Unity instance/Module property names and function names; this is meant for choosing the next decoded-message hook without dumping memory or calling runtime functions.
 
+The current Unity field mapping includes a narrow decoder for the short encoded `ActionDiscardTile` payload shape observed on `game.maj-soul.com/1/`, allowing replay to recover seat, tile, and tsumogiri for many discard actions. It intentionally does not guess long discard payloads, draw payloads, new-round hand data, meld details, or score changes until those encodings are mapped from real samples.
+
 The debug panel also shows how many WebSocket instances were created after the hook installed and the most recent socket URLs. This helps distinguish an installation problem from a page state where the game client has not opened live traffic yet.
 
 The script injects a draggable right-side panel. Use debug/manual input first, for example:
@@ -93,11 +95,11 @@ The request/response id is decoded as little-endian, matching the public majsoul
 
 ## Capturing Real Page Samples
 
-1. Install `majsoul-helper.user.js` in Tampermonkey and confirm the overlay title shows `Majsoul Helper v0.2.7`.
+1. Install `majsoul-helper.user.js` in Tampermonkey and confirm the overlay title shows `Majsoul Helper v0.2.8`.
 2. Open Mahjong Soul and enter a non-ranked or training-friendly room.
 3. Keep realtime advice off unless explicitly testing it.
 4. Use the overlay debug panel to confirm `raw_message` entries are appearing.
-   The `Install` line should read `installed`, `v0.2.7`, and the `Runtime` line should identify whether the page is JS/Laya or Unity WebGL. On older JS/Laya builds, either `client decode hooked` or `page dispatch hooked` is the best signal that decoded visible fields are available. On current Unity WebGL builds, expect the legacy decode hooks to become `not-applicable-unity`; if the capture health says Unity Action names are captured but payload fields are encoded or unmapped, export the capture and treat the next task as finding a Unity runtime decoded hook or action payload decoder. Binary sample bytes default to 4096 in current builds.
+   The `Install` line should read `installed`, `v0.2.8`, and the `Runtime` line should identify whether the page is JS/Laya or Unity WebGL. On older JS/Laya builds, either `client decode hooked` or `page dispatch hooked` is the best signal that decoded visible fields are available. On current Unity WebGL builds, expect the legacy decode hooks to become `not-applicable-unity`; if the capture health says Unity Action names are captured but payload fields are encoded or unmapped, export the capture and treat the next task as finding a Unity runtime decoded hook or action payload decoder. Binary sample bytes default to 4096 in current builds.
 5. Click `Download capture` for a local JSON file, or `Copy capture` if you prefer the clipboard path.
 6. Import the downloaded file with `npm run import-capture -- path/to/majsoul-helper-capture.json`, or run `npm run import-capture` to use the newest matching file in your Downloads folder.
 7. Run `npm run capture-doctor -- captures/capture-real.json` for a compact first diagnosis, then run `npm run real-page-gate` for the strict final real-page check.

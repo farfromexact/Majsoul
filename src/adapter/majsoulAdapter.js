@@ -1335,6 +1335,7 @@ export function replayCaptureWithDiagnostics(capture) {
     replayedEvents: 0
   };
   const replayedParsedKeys = new Set();
+  const replayedRawParsedKeys = new Set();
   for (const event of orderedEvents.events) {
     if (event.type === "raw_message") {
       replayDedupe.rawMessages += 1;
@@ -1343,11 +1344,18 @@ export function replayCaptureWithDiagnostics(capture) {
       replayDedupe.rawParsedEvents += parsedEvents.length;
       for (const parsedEvent of parsedEvents) {
         replayedParsedKeys.add(parsedEventReplayKey(parsedEvent));
+        replayedRawParsedKeys.add(parsedEventRawReplayKey(parsedEvent));
         events.push(parsedEvent);
       }
     } else if (isStandardGameEvent(event.type)) {
       replayDedupe.liveParsedEvents += 1;
-      if (event.payload?.rawSummary && replayedParsedKeys.has(parsedEventReplayKey(event))) {
+      if (
+        event.payload?.rawSummary
+        && (
+          replayedParsedKeys.has(parsedEventReplayKey(event))
+          || replayedRawParsedKeys.has(parsedEventRawReplayKey(event))
+        )
+      ) {
         replayDedupe.skippedLiveParsedEvents += 1;
         continue;
       }
@@ -1382,6 +1390,20 @@ function orderedCaptureEvents(events = []) {
 export function replayCapture(capture) {
   const { events } = replayCaptureWithDiagnostics(capture);
   return events;
+}
+
+function parsedEventRawReplayKey(event) {
+  const payload = event?.payload || {};
+  const rawSummary = rawSummaryReplayKey(payload.rawSummary);
+  if (!rawSummary) return "";
+  return JSON.stringify({
+    type: event?.type || "",
+    source: event?.source || "",
+    ts: event?.ts ?? null,
+    methodName: payload.binaryEnvelope?.methodName || "",
+    actionName: payload.binaryEnvelope?.actionName || "",
+    rawSummary
+  });
 }
 
 function parsedEventReplayKey(event) {
