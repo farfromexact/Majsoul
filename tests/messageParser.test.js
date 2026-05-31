@@ -480,6 +480,51 @@ describe("messageParser", () => {
     });
   });
 
+  it("decodes Unity WebGL encoded draw seat and self-draw payloads", () => {
+    const hiddenDealPayload = hexBytes("9d 75 71 26 66 cc");
+    const hiddenActionPrototype = [
+      ...protobufVarint(1, 3),
+      ...protobufString(2, "ActionDealTile"),
+      ...protobufBytes(3, hiddenDealPayload)
+    ];
+    const hiddenFrame = new Uint8Array([
+      1,
+      ...protobufString(1, ".lq.ActionPrototype"),
+      ...protobufBytes(2, hiddenActionPrototype)
+    ]);
+
+    expect(parseBinaryMessage(hiddenFrame)[0]).toMatchObject({
+      type: "draw_tile",
+      payload: {
+        seat: 3,
+        doraIndicators: [],
+        payloadCodec: "unity-xor-deal-seat-short"
+      }
+    });
+
+    const selfDealPayload = hexBytes("9b 70 75 62 6f b0 54 a8 71 cc 97 96 9f 8b ff 78 9f 80 c5 2c 66 a8 8e 24");
+    const selfActionPrototype = [
+      ...protobufVarint(1, 25),
+      ...protobufString(2, "ActionDealTile"),
+      ...protobufBytes(3, selfDealPayload)
+    ];
+    const selfFrame = new Uint8Array([
+      1,
+      ...protobufString(1, ".lq.ActionPrototype"),
+      ...protobufBytes(2, selfActionPrototype)
+    ]);
+
+    expect(parseBinaryMessage(selfFrame)[0]).toMatchObject({
+      type: "draw_tile",
+      payload: {
+        seat: 0,
+        tile: "3z",
+        doraIndicators: [],
+        payloadCodec: "unity-xor-deal-self-draw"
+      }
+    });
+  });
+
   it("uses little-endian request ids for request and response frames", () => {
     const frame = new Uint8Array([
       2,

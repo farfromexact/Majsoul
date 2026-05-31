@@ -531,6 +531,32 @@ function decodeUnityEncodedDiscardPayload(bytes) {
   };
 }
 
+function decodeUnityEncodedDealPayload(bytes) {
+  if (!bytes) return null;
+  if (bytes.length === 6) {
+    const seat = bytes[1] ^ 0x76;
+    if (!Number.isInteger(seat) || seat < 0 || seat > 3) return null;
+    return {
+      seat,
+      doraIndicators: [],
+      payloadCodec: "unity-xor-deal-seat-short"
+    };
+  }
+
+  if (bytes.length === 24) {
+    const tile = String.fromCharCode(bytes[4] ^ 0x5c, bytes[5] ^ 0xca);
+    if (!tileLike(tile)) return null;
+    return {
+      seat: 0,
+      tile,
+      doraIndicators: [],
+      payloadCodec: "unity-xor-deal-self-draw"
+    };
+  }
+
+  return null;
+}
+
 function nestedPayloadFields(fields, id) {
   return fields.lengthDelimited
     .filter((entry) => entry.field === id && entry.bytes?.length)
@@ -772,13 +798,15 @@ function decodeSimpleActionPayload(actionName, bytes) {
 
   if (actionName === "ActionDealTile" || actionName === "RecordDealTile") {
     const riichi = decodeLiQiSuccess(fields, 5);
-    return {
+    const decoded = {
       seat: numericField(fields, 1),
       tile: stringField(fields, 2),
       leftTileCount: numericField(fields, 3),
       doraIndicators: tileStringFields(fields, 6),
       ...(riichi ? { riichi } : {})
     };
+    if (decoded.seat !== undefined || decoded.tile || decoded.doraIndicators.length || decoded.riichi) return decoded;
+    return decodeUnityEncodedDealPayload(bytes) || decoded;
   }
 
   if (actionName === "ActionChiPengGang" || actionName === "RecordChiPengGang") {

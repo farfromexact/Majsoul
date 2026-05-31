@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.2.8
+// @version      0.2.9
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -464,6 +464,29 @@ var MajsoulHelperBundle = (() => {
       payloadCodec: "unity-xor-discard-short"
     };
   }
+  function decodeUnityEncodedDealPayload(bytes) {
+    if (!bytes) return null;
+    if (bytes.length === 6) {
+      const seat = bytes[1] ^ 118;
+      if (!Number.isInteger(seat) || seat < 0 || seat > 3) return null;
+      return {
+        seat,
+        doraIndicators: [],
+        payloadCodec: "unity-xor-deal-seat-short"
+      };
+    }
+    if (bytes.length === 24) {
+      const tile = String.fromCharCode(bytes[4] ^ 92, bytes[5] ^ 202);
+      if (!tileLike(tile)) return null;
+      return {
+        seat: 0,
+        tile,
+        doraIndicators: [],
+        payloadCodec: "unity-xor-deal-self-draw"
+      };
+    }
+    return null;
+  }
   function nestedPayloadFields(fields, id) {
     return fields.lengthDelimited.filter((entry) => entry.field === id && entry.bytes?.length).map((entry) => parseProtobufEnvelope(entry.bytes).fields);
   }
@@ -671,13 +694,15 @@ var MajsoulHelperBundle = (() => {
     }
     if (actionName === "ActionDealTile" || actionName === "RecordDealTile") {
       const riichi = decodeLiQiSuccess(fields, 5);
-      return {
+      const decoded2 = {
         seat: numericField(fields, 1),
         tile: stringField(fields, 2),
         leftTileCount: numericField(fields, 3),
         doraIndicators: tileStringFields(fields, 6),
         ...riichi ? { riichi } : {}
       };
+      if (decoded2.seat !== void 0 || decoded2.tile || decoded2.doraIndicators.length || decoded2.riichi) return decoded2;
+      return decodeUnityEncodedDealPayload(bytes) || decoded2;
     }
     if (actionName === "ActionChiPengGang" || actionName === "RecordChiPengGang") {
       const riichi = decodeLiQiSuccess(fields, 5);
@@ -4215,7 +4240,7 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
-  var HELPER_VERSION = "0.2.8";
+  var HELPER_VERSION = "0.2.9";
   function upgradedStoredNumber(value, fallback) {
     const number = Number(value);
     if (!Number.isFinite(number) || number <= 0) return fallback;
