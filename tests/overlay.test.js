@@ -12,7 +12,7 @@ class FakeAdapter extends EventTarget {
     this.events = [];
     this.installDiagnostics = {
       installed: true,
-      helperVersion: "0.2.4",
+      helperVersion: "0.2.5",
       installAttempts: 1,
       installedAt: "2026-05-25T00:00:00.000Z",
       installFailureReason: "",
@@ -72,7 +72,7 @@ class FakeAdapter extends EventTarget {
 
   setMaxEvents(value) {
     const number = Number(value);
-    this.maxEvents = Math.max(1, Math.min(1000, Math.floor(number)));
+    this.maxEvents = Math.max(1, Math.min(3000, Math.floor(number)));
     this.events = this.events.slice(0, this.maxEvents);
     this.installDiagnostics.maxEvents = this.maxEvents;
     this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.installDiagnostics }));
@@ -144,7 +144,7 @@ describe("Overlay", () => {
     overlay.mount();
 
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Training/review use only");
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.4");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.5");
     expect(document.querySelector('[data-action="realtime-advice"]').checked).toBe(false);
     expect(document.querySelector('[data-role="realtime-risk"]')).toBeNull();
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Enter a hand or enable realtime advice");
@@ -679,17 +679,17 @@ describe("Overlay", () => {
     expect(document.activeElement).toBe(captureLimit);
     expect(captureLimit.value).toBe("");
 
-    captureLimit.value = "1000";
+    captureLimit.value = "3000";
     captureLimit.dispatchEvent(new Event("input", { bubbles: true }));
     adapter.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: rawEvent }));
     captureLimit = document.querySelector('[data-role="capture-limit"]');
     expect(document.activeElement).toBe(captureLimit);
-    expect(captureLimit.value).toBe("1000");
+    expect(captureLimit.value).toBe("3000");
     captureLimit.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
 
-    expect(adapter.maxEvents).toBe(1000);
+    expect(adapter.maxEvents).toBe(3000);
     expect(JSON.parse(window.localStorage.getItem("majsoul-helper-config"))).toMatchObject({
-      captureLimit: 1000
+      captureLimit: 3000
     });
 
     let sampleBytes = document.querySelector('[data-role="binary-sample-bytes"]');
@@ -718,7 +718,7 @@ describe("Overlay", () => {
 
     expect(adapter.maxEvents).toBe(500);
     expect(document.querySelector('[data-role="capture-limit"]').value).toBe("500");
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.4");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.5");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 2048 bytes");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("page dispatch hooked");
   });
@@ -1075,6 +1075,22 @@ describe("Overlay", () => {
       hasUnityModule: true,
       heapU8: true,
       sendMessageAvailable: true,
+      unityInstanceShape: {
+        keyCount: 3,
+        keys: ["Module", "SendMessage", "decodeAction"],
+        functionKeyCount: 2,
+        functionKeys: ["SendMessage", "decodeAction"],
+        prototypeFunctionKeyCount: 0,
+        prototypeFunctionKeys: []
+      },
+      unityModuleShape: {
+        keyCount: 4,
+        keys: ["HEAPU8", "SendMessage", "_malloc", "decodeBuffer"],
+        functionKeyCount: 3,
+        functionKeys: ["SendMessage", "_malloc", "decodeBuffer"],
+        prototypeFunctionKeyCount: 0,
+        prototypeFunctionKeys: []
+      },
       netMessageWrapperGlobal: false,
       layaGlobal: false
     };
@@ -1094,6 +1110,8 @@ describe("Overlay", () => {
     ];
     overlay.render();
     expect(document.querySelector('[data-role="runtime-diagnostics"]').textContent).toContain("Unity WebGL detected");
+    expect(document.querySelector('[data-role="runtime-diagnostics"]').textContent).toContain("instance keys 3 / funcs 2 / proto funcs 0");
+    expect(document.querySelector('[data-role="runtime-diagnostics"]').textContent).toContain("Module keys 4 / funcs 3 / proto funcs 0");
     expect(document.querySelector('[data-role="capture-health"]').textContent).toContain("Unity WebGL Action names are captured");
   });
 

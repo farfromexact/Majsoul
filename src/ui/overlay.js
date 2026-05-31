@@ -8,6 +8,7 @@ const STORAGE_KEY = "majsoul-helper-config";
 const OVERLAY_CAPTURE_NOTE = "Majsoul Helper capture export. Contains message summaries/samples plus liveGameState, liveDebugSummary, liveMvpGate, liveSafetySettings, and liveRealPagePreflight snapshots copied from the overlay; no messages were modified by the helper.";
 const DEFAULT_BINARY_SAMPLE_BYTES = 2048;
 const DEFAULT_CAPTURE_LIMIT = 500;
+const MAX_CAPTURE_LIMIT = 3000;
 
 function escapeHtml(value) {
   return String(value)
@@ -103,7 +104,7 @@ function writeConfig(patch) {
 function normalizeCaptureLimit(value, fallback = DEFAULT_CAPTURE_LIMIT) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) return fallback;
-  return Math.max(1, Math.min(1000, Math.floor(number)));
+  return Math.max(1, Math.min(MAX_CAPTURE_LIMIT, Math.floor(number)));
 }
 
 function normalizeBinarySampleBytes(value, fallback = DEFAULT_BINARY_SAMPLE_BYTES) {
@@ -318,6 +319,8 @@ function formatRuntimeDiagnostics(runtime = {}) {
   const scriptName = runtime.unityBuildScript
     ? String(runtime.unityBuildScript).split("/").filter(Boolean).at(-1)
     : "";
+  const instanceShape = formatRuntimeShapeSummary("instance", runtime.unityInstanceShape);
+  const moduleShape = formatRuntimeShapeSummary("Module", runtime.unityModuleShape);
   const parts = [
     `Unity WebGL ${runtime.unityWebGL ? "detected" : "not detected"}`,
     scriptName ? `build ${scriptName}` : null,
@@ -329,10 +332,22 @@ function formatRuntimeDiagnostics(runtime = {}) {
     `unityInstance ${runtime.hasUnityInstance ? "ok" : "missing"}`,
     `Module ${runtime.hasUnityModule ? "ok" : "missing"}`,
     `heap ${runtime.heapU8 ? "ok" : "missing"}`,
+    instanceShape,
+    moduleShape,
     `global net ${runtime.netMessageWrapperGlobal ? "ok" : "missing"}`,
     `global Laya ${runtime.layaGlobal ? "ok" : "missing"}`
   ].filter(Boolean);
   return parts.join(" / ");
+}
+
+function formatRuntimeShapeSummary(label, shape = {}) {
+  if (!shape || typeof shape !== "object") return "";
+  const keyCount = shape.keyCount ?? 0;
+  const functionCount = shape.functionKeyCount ?? 0;
+  const prototypeFunctionCount = shape.prototypeFunctionKeyCount ?? 0;
+  if (!keyCount && !functionCount && !prototypeFunctionCount && !shape.unavailableReason) return "";
+  const error = shape.unavailableReason ? ` / shape error ${shape.unavailableReason}` : "";
+  return `${label} keys ${keyCount} / funcs ${functionCount} / proto funcs ${prototypeFunctionCount}${error}`;
 }
 
 function formatEventBufferDiagnostics(eventBuffer = {}) {
@@ -870,7 +885,7 @@ export class Overlay {
             <button class="mh-button" data-action="self-test">Self-test</button>
           </div>
           ${this.selfTestResult ? this.renderSelfTest(this.selfTestResult) : ""}
-          <label class="mh-muted">Capture limit <input class="mh-input" data-role="capture-limit" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Capture limit, 1 to 1000" value="${escapeHtml(captureLimitValue)}"></label>
+          <label class="mh-muted">Capture limit <input class="mh-input" data-role="capture-limit" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Capture limit, 1 to 3000" value="${escapeHtml(captureLimitValue)}"></label>
           <label class="mh-muted">Binary sample bytes <input class="mh-input" data-role="binary-sample-bytes" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Binary sample bytes, 16 to 4096" value="${escapeHtml(binarySampleValue)}"></label>
           <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"}${helperVersion ? ` / v${escapeHtml(helperVersion)}` : ""} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes / client decode ${installDiagnostics.hooks?.decodedMessage ? "hooked" : "waiting"} / page dispatch ${installDiagnostics.hooks?.decodedDispatcher ? "hooked" : "waiting"}</div>
           <div class="mh-muted" data-role="hook-diagnostics">Hooks: ${escapeHtml(formatHookDiagnostics(installDiagnostics.hooks))}</div>

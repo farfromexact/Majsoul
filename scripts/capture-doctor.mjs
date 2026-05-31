@@ -35,6 +35,7 @@ const page = report.captureMetadata?.page || null;
 const helperDiagnostics = report.captureMetadata?.helperDiagnostics || null;
 const preflight = report.captureMetadata?.liveRealPagePreflight || null;
 const safetySettings = report.captureMetadata?.liveSafetySettings || null;
+const runtimeKeys = formatRuntimeKeys(helperDiagnostics?.runtime);
 const lines = [
   `Capture doctor: ${capturePath}`,
   `Replay acceptance: ${report.acceptance?.readyForRealPageMvp ? "ready" : "not ready"} (${countPassing(report.acceptance?.checks)}/${Object.keys(report.acceptance?.checks || {}).length} checks)`,
@@ -44,6 +45,7 @@ const lines = [
   `Preflight: ${formatPreflight(preflight)}`,
   `Hook: ${formatHook(helperDiagnostics)}`,
   `Runtime: ${formatRuntime(helperDiagnostics?.runtime)}`,
+  runtimeKeys ? `Runtime keys: ${runtimeKeys}` : null,
   `Safety: ${formatSafetySettings(safetySettings)}`,
   `Event buffer: ${formatEventBuffer(helperDiagnostics?.eventBuffer)}`,
   `Traffic: raw ${report.diagnostics?.rawMessages ?? 0} / inbound ${report.diagnostics?.inboundRawMessages ?? 0} / outbound ${report.diagnostics?.outboundRawMessages ?? 0} / envelopes ${report.diagnostics?.rawMessagesWithEnvelope ?? 0} / actions ${report.diagnostics?.rawActionTotal ?? 0} / replayed ${report.eventCount ?? 0}`,
@@ -53,7 +55,7 @@ const lines = [
   `State updates: ${formatStateUpdates(report.stateDiagnostics?.stateUpdated)}`,
   `Live snapshot: ${report.liveStateComparison?.available ? `available (${report.liveStateComparison.mismatches?.length || 0} mismatches)` : "missing"}`,
   `Live overlay: ${report.liveOverlay?.available ? "available" : "missing"}`
-];
+].filter(Boolean);
 
 if (report.acceptance?.missing?.length) {
   lines.push(`Missing replay checks: ${report.acceptance.missing.join(", ")}`);
@@ -193,9 +195,41 @@ function formatRuntime(runtime) {
     `unityInstance ${runtime.hasUnityInstance ? "ok" : "missing"}`,
     `Module ${runtime.hasUnityModule ? "ok" : "missing"}`,
     `heap ${runtime.heapU8 ? "ok" : "missing"}`,
+    formatRuntimeShapeSummary("instance", runtime.unityInstanceShape),
+    formatRuntimeShapeSummary("Module", runtime.unityModuleShape),
     `global net ${runtime.netMessageWrapperGlobal ? "ok" : "missing"}`,
     `global Laya ${runtime.layaGlobal ? "ok" : "missing"}`
   ].filter(Boolean).join(" / ");
+}
+
+function formatRuntimeShapeSummary(label, shape) {
+  if (!shape || typeof shape !== "object") return "";
+  const keyCount = shape.keyCount ?? 0;
+  const functionCount = shape.functionKeyCount ?? 0;
+  const prototypeFunctionCount = shape.prototypeFunctionKeyCount ?? 0;
+  if (!keyCount && !functionCount && !prototypeFunctionCount && !shape.unavailableReason) return "";
+  const error = shape.unavailableReason ? ` / shape error ${shape.unavailableReason}` : "";
+  return `${label} keys ${keyCount} / funcs ${functionCount} / proto funcs ${prototypeFunctionCount}${error}`;
+}
+
+function formatRuntimeKeys(runtime) {
+  if (!runtime || typeof runtime !== "object") return "";
+  const instance = formatRuntimeShapeKeys("instance", runtime.unityInstanceShape);
+  const module = formatRuntimeShapeKeys("Module", runtime.unityModuleShape);
+  return [instance, module].filter(Boolean).join(" / ");
+}
+
+function formatRuntimeShapeKeys(label, shape) {
+  if (!shape || typeof shape !== "object") return "";
+  const own = (shape.keys || []).slice(0, 12).join(", ");
+  const funcs = (shape.functionKeys || []).slice(0, 12).join(", ");
+  const protoFuncs = (shape.prototypeFunctionKeys || []).slice(0, 8).join(", ");
+  const parts = [
+    own ? `keys [${own}]` : "",
+    funcs ? `funcs [${funcs}]` : "",
+    protoFuncs ? `proto funcs [${protoFuncs}]` : ""
+  ].filter(Boolean);
+  return parts.length ? `${label} ${parts.join(" ")}` : "";
 }
 
 function formatSafetySettings(settings) {

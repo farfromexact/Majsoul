@@ -1008,8 +1008,15 @@ describe("MajsoulAdapter", () => {
       }
     };
     globalThis.unityInstance = {
-      Module: { HEAPU8: new Uint8Array() },
-      SendMessage() {}
+      Module: {
+        HEAPU8: new Uint8Array(),
+        SendMessage() {},
+        get decodedPayload() {
+          throw new Error("diagnostics must not read accessors");
+        }
+      },
+      SendMessage() {},
+      decodeAction() {}
     };
     const adapter = new MajsoulAdapter();
     adapter.install();
@@ -1022,6 +1029,20 @@ describe("MajsoulAdapter", () => {
       heapU8: true,
       sendMessageAvailable: true,
       createUnityInstanceHook: false,
+      unityInstanceShape: {
+        keyCount: 3,
+        keys: ["Module", "SendMessage", "decodeAction"],
+        functionKeyCount: 2,
+        functionKeys: ["SendMessage", "decodeAction"]
+      },
+      unityModuleShape: {
+        keyCount: 3,
+        keys: ["HEAPU8", "SendMessage", "decodedPayload"],
+        functionKeyCount: 1,
+        functionKeys: ["SendMessage"],
+        accessorKeyCount: 1,
+        accessorKeys: ["decodedPayload"]
+      },
       netMessageWrapperGlobal: false,
       layaGlobal: false
     });

@@ -94,6 +94,22 @@ describe("capture doctor script", () => {
         hasUnityInstance: true,
         hasUnityModule: true,
         heapU8: true,
+        unityInstanceShape: {
+          keyCount: 3,
+          keys: ["Module", "SendMessage", "decodeAction"],
+          functionKeyCount: 2,
+          functionKeys: ["SendMessage", "decodeAction"],
+          prototypeFunctionKeyCount: 0,
+          prototypeFunctionKeys: []
+        },
+        unityModuleShape: {
+          keyCount: 4,
+          keys: ["HEAPU8", "SendMessage", "_malloc", "decodeBuffer"],
+          functionKeyCount: 3,
+          functionKeys: ["SendMessage", "_malloc", "decodeBuffer"],
+          prototypeFunctionKeyCount: 0,
+          prototypeFunctionKeys: []
+        },
         netMessageWrapperGlobal: false,
         layaGlobal: false
       },
@@ -132,7 +148,8 @@ describe("capture doctor script", () => {
     expect(result.stdout).toContain("Page: https://game.maj-soul.com/1/ (Mahjong Soul)");
     expect(result.stdout).toContain("Preflight: not ready (4/5) missing liveMvpGateReady next Collect from round start until the MVP gate is complete.");
     expect(result.stdout).toContain("Hook: installed / capture running / WebSocket available / sockets 1 / sample 2048 bytes / onmessage ok (accessor)");
-    expect(result.stdout).toContain("Runtime: Unity WebGL detected / build chs_t-WebGL-release-4.0.43(43).loader.js / loader observer off / loader loads 0 / createUnityInstance waiting (unknown) / calls 0 / resolved no / unityInstance ok / Module ok / heap ok / global net missing / global Laya missing");
+    expect(result.stdout).toContain("Runtime: Unity WebGL detected / build chs_t-WebGL-release-4.0.43(43).loader.js / loader observer off / loader loads 0 / createUnityInstance waiting (unknown) / calls 0 / resolved no / unityInstance ok / Module ok / heap ok / instance keys 3 / funcs 2 / proto funcs 0 / Module keys 4 / funcs 3 / proto funcs 0 / global net missing / global Laya missing");
+    expect(result.stdout).toContain("Runtime keys: instance keys [Module, SendMessage, decodeAction] funcs [SendMessage, decodeAction] / Module keys [HEAPU8, SendMessage, _malloc, decodeBuffer] funcs [SendMessage, _malloc, decodeBuffer]");
     expect(result.stdout).toContain("Safety: realtime advice off (off) / capture running / automation disabled / message mutation disabled");
     expect(result.stdout).toContain("Event buffer: retained 3/12 / dropped 9 / ids 10-12 / max 300");
   });

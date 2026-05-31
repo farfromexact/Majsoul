@@ -3,6 +3,9 @@ import { isStandardGameEvent } from "../core/events.js";
 
 const DEFAULT_BINARY_SAMPLE_BYTES = 2048;
 const DEFAULT_MAX_EVENTS = 500;
+const MAX_CAPTURE_EVENTS = 3000;
+const RUNTIME_SHAPE_KEY_LIMIT = 40;
+const RUNTIME_SHAPE_ACCESSOR_LIMIT = 20;
 const SELF_TEST_DISCARD_SAMPLE =
   "01 0a 13 2e 6c 71 2e 41 63 74 69 6f 6e 50 72 6f 74 6f 74 79 70 65 12 1f 08 35 12 11 41 63 74 69 6f 6e 44 69 73 63 61 72 64 54 69 6c 65 1a 08 08 03 12 02 39 73 28 01";
 
@@ -107,6 +110,8 @@ function getPageDiagnostics() {
 function getRuntimeDiagnostics(unityRuntime = {}) {
   const unityInstance = unityRuntime.instance || globalThis.unityInstance || globalThis.gameInstance || null;
   const unityModule = unityInstance?.Module || null;
+  const unityInstanceShape = summarizeRuntimeObjectShape(unityInstance);
+  const unityModuleShape = summarizeRuntimeObjectShape(unityModule);
   const unityBuildScript = getScriptSources()
     .find((src) => /WebGL-release|\.loader\.js|\.framework\.js|\.wasm/i.test(src)) || "";
   const unityCanvas = safeQuerySelector("#unity-canvas") || safeQuerySelector("canvas");
@@ -117,6 +122,8 @@ function getRuntimeDiagnostics(unityRuntime = {}) {
     hasUnityModule: Boolean(unityModule),
     heapU8: Boolean(unityModule?.HEAPU8),
     sendMessageAvailable: Boolean(unityInstance?.SendMessage || unityModule?.SendMessage),
+    unityInstanceShape,
+    unityModuleShape,
     createUnityInstanceLoadObserver: Boolean(unityRuntime.createUnityInstanceLoadObserver),
     createUnityInstanceLoadEvents: unityRuntime.createUnityInstanceLoadEvents ?? 0,
     createUnityInstanceLastScript: unityRuntime.createUnityInstanceLastScript || "",
@@ -129,6 +136,91 @@ function getRuntimeDiagnostics(unityRuntime = {}) {
     netMessageWrapperGlobal: typeof globalThis.net?.MessageWrapper?.decodeMessage === "function",
     layaGlobal: Boolean(globalThis.Laya?.EventDispatcher)
   };
+}
+
+function summarizeRuntimeObjectShape(value) {
+  const own = summarizeRuntimeObjectLevel(value);
+  const prototype = summarizeRuntimeObjectLevel(safeGetPrototype(value), {
+    keyLimit: 20,
+    accessorLimit: 10
+  });
+  return {
+    keyCount: own.keyCount,
+    keys: own.keys,
+    functionKeyCount: own.functionKeyCount,
+    functionKeys: own.functionKeys,
+    accessorKeyCount: own.accessorKeyCount,
+    accessorKeys: own.accessorKeys,
+    unavailableReason: own.unavailableReason,
+    prototypeKeyCount: prototype.keyCount,
+    prototypeKeys: prototype.keys,
+    prototypeFunctionKeyCount: prototype.functionKeyCount,
+    prototypeFunctionKeys: prototype.functionKeys,
+    prototypeAccessorKeyCount: prototype.accessorKeyCount,
+    prototypeAccessorKeys: prototype.accessorKeys,
+    prototypeUnavailableReason: prototype.unavailableReason
+  };
+}
+
+function summarizeRuntimeObjectLevel(value, {
+  keyLimit = RUNTIME_SHAPE_KEY_LIMIT,
+  accessorLimit = RUNTIME_SHAPE_ACCESSOR_LIMIT
+} = {}) {
+  const empty = {
+    keyCount: 0,
+    keys: [],
+    functionKeyCount: 0,
+    functionKeys: [],
+    accessorKeyCount: 0,
+    accessorKeys: [],
+    unavailableReason: ""
+  };
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return empty;
+  let descriptors;
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(value);
+  } catch (error) {
+    return {
+      ...empty,
+      unavailableReason: safeParseError(error)
+    };
+  }
+  const keys = Reflect.ownKeys(descriptors);
+  const names = keys.map(sanitizeDiagnosticKey);
+  const functionKeys = [];
+  const accessorKeys = [];
+
+  for (const key of keys) {
+    const descriptor = descriptors[key];
+    const name = sanitizeDiagnosticKey(key);
+    if (typeof descriptor?.value === "function") functionKeys.push(name);
+    if (descriptor?.get || descriptor?.set) accessorKeys.push(name);
+  }
+
+  return {
+    keyCount: keys.length,
+    keys: names.slice(0, keyLimit),
+    functionKeyCount: functionKeys.length,
+    functionKeys: functionKeys.slice(0, keyLimit),
+    accessorKeyCount: accessorKeys.length,
+    accessorKeys: accessorKeys.slice(0, accessorLimit),
+    unavailableReason: ""
+  };
+}
+
+function safeGetPrototype(value) {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return null;
+  try {
+    return Object.getPrototypeOf(value);
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeDiagnosticKey(key) {
+  const text = typeof key === "symbol" ? key.toString() : String(key);
+  const withoutUrlSecret = text.includes("://") ? sanitizeUrl(text) : text.split("#")[0].split("?")[0];
+  return withoutUrlSecret.slice(0, 120);
 }
 
 function getScriptSources() {
@@ -1405,7 +1497,7 @@ function normalizeLimit(limit, fallback, max = Infinity) {
 function normalizeMaxEvents(value, fallback = DEFAULT_MAX_EVENTS) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) return fallback;
-  return Math.max(1, Math.min(1000, Math.floor(number)));
+  return Math.max(1, Math.min(MAX_CAPTURE_EVENTS, Math.floor(number)));
 }
 
 function normalizeSampleBytes(value) {
@@ -1414,4 +1506,4 @@ function normalizeSampleBytes(value) {
   return Math.max(16, Math.min(4096, Math.floor(number)));
 }
 
-export { DEFAULT_BINARY_SAMPLE_BYTES, DEFAULT_MAX_EVENTS, summarizeMessage };
+export { DEFAULT_BINARY_SAMPLE_BYTES, DEFAULT_MAX_EVENTS, MAX_CAPTURE_EVENTS, summarizeMessage };

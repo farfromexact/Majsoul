@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.2.4
+// @version      0.2.5
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -912,6 +912,9 @@ var MajsoulHelperBundle = (() => {
   // src/adapter/majsoulAdapter.js
   var DEFAULT_BINARY_SAMPLE_BYTES = 2048;
   var DEFAULT_MAX_EVENTS = 500;
+  var MAX_CAPTURE_EVENTS = 3e3;
+  var RUNTIME_SHAPE_KEY_LIMIT = 40;
+  var RUNTIME_SHAPE_ACCESSOR_LIMIT = 20;
   var SELF_TEST_DISCARD_SAMPLE = "01 0a 13 2e 6c 71 2e 41 63 74 69 6f 6e 50 72 6f 74 6f 74 79 70 65 12 1f 08 35 12 11 41 63 74 69 6f 6e 44 69 73 63 61 72 64 54 69 6c 65 1a 08 08 03 12 02 39 73 28 01";
   function createHookDiagnostics() {
     return {
@@ -1009,6 +1012,8 @@ var MajsoulHelperBundle = (() => {
   function getRuntimeDiagnostics(unityRuntime = {}) {
     const unityInstance = unityRuntime.instance || globalThis.unityInstance || globalThis.gameInstance || null;
     const unityModule = unityInstance?.Module || null;
+    const unityInstanceShape = summarizeRuntimeObjectShape(unityInstance);
+    const unityModuleShape = summarizeRuntimeObjectShape(unityModule);
     const unityBuildScript = getScriptSources().find((src) => /WebGL-release|\.loader\.js|\.framework\.js|\.wasm/i.test(src)) || "";
     const unityCanvas = safeQuerySelector("#unity-canvas") || safeQuerySelector("canvas");
     return {
@@ -1018,6 +1023,8 @@ var MajsoulHelperBundle = (() => {
       hasUnityModule: Boolean(unityModule),
       heapU8: Boolean(unityModule?.HEAPU8),
       sendMessageAvailable: Boolean(unityInstance?.SendMessage || unityModule?.SendMessage),
+      unityInstanceShape,
+      unityModuleShape,
       createUnityInstanceLoadObserver: Boolean(unityRuntime.createUnityInstanceLoadObserver),
       createUnityInstanceLoadEvents: unityRuntime.createUnityInstanceLoadEvents ?? 0,
       createUnityInstanceLastScript: unityRuntime.createUnityInstanceLastScript || "",
@@ -1030,6 +1037,85 @@ var MajsoulHelperBundle = (() => {
       netMessageWrapperGlobal: typeof globalThis.net?.MessageWrapper?.decodeMessage === "function",
       layaGlobal: Boolean(globalThis.Laya?.EventDispatcher)
     };
+  }
+  function summarizeRuntimeObjectShape(value) {
+    const own = summarizeRuntimeObjectLevel(value);
+    const prototype = summarizeRuntimeObjectLevel(safeGetPrototype(value), {
+      keyLimit: 20,
+      accessorLimit: 10
+    });
+    return {
+      keyCount: own.keyCount,
+      keys: own.keys,
+      functionKeyCount: own.functionKeyCount,
+      functionKeys: own.functionKeys,
+      accessorKeyCount: own.accessorKeyCount,
+      accessorKeys: own.accessorKeys,
+      unavailableReason: own.unavailableReason,
+      prototypeKeyCount: prototype.keyCount,
+      prototypeKeys: prototype.keys,
+      prototypeFunctionKeyCount: prototype.functionKeyCount,
+      prototypeFunctionKeys: prototype.functionKeys,
+      prototypeAccessorKeyCount: prototype.accessorKeyCount,
+      prototypeAccessorKeys: prototype.accessorKeys,
+      prototypeUnavailableReason: prototype.unavailableReason
+    };
+  }
+  function summarizeRuntimeObjectLevel(value, {
+    keyLimit = RUNTIME_SHAPE_KEY_LIMIT,
+    accessorLimit = RUNTIME_SHAPE_ACCESSOR_LIMIT
+  } = {}) {
+    const empty = {
+      keyCount: 0,
+      keys: [],
+      functionKeyCount: 0,
+      functionKeys: [],
+      accessorKeyCount: 0,
+      accessorKeys: [],
+      unavailableReason: ""
+    };
+    if (!value || typeof value !== "object" && typeof value !== "function") return empty;
+    let descriptors;
+    try {
+      descriptors = Object.getOwnPropertyDescriptors(value);
+    } catch (error) {
+      return {
+        ...empty,
+        unavailableReason: safeParseError(error)
+      };
+    }
+    const keys = Reflect.ownKeys(descriptors);
+    const names = keys.map(sanitizeDiagnosticKey);
+    const functionKeys = [];
+    const accessorKeys = [];
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      const name = sanitizeDiagnosticKey(key);
+      if (typeof descriptor?.value === "function") functionKeys.push(name);
+      if (descriptor?.get || descriptor?.set) accessorKeys.push(name);
+    }
+    return {
+      keyCount: keys.length,
+      keys: names.slice(0, keyLimit),
+      functionKeyCount: functionKeys.length,
+      functionKeys: functionKeys.slice(0, keyLimit),
+      accessorKeyCount: accessorKeys.length,
+      accessorKeys: accessorKeys.slice(0, accessorLimit),
+      unavailableReason: ""
+    };
+  }
+  function safeGetPrototype(value) {
+    if (!value || typeof value !== "object" && typeof value !== "function") return null;
+    try {
+      return Object.getPrototypeOf(value);
+    } catch {
+      return null;
+    }
+  }
+  function sanitizeDiagnosticKey(key) {
+    const text = typeof key === "symbol" ? key.toString() : String(key);
+    const withoutUrlSecret = text.includes("://") ? sanitizeUrl(text) : text.split("#")[0].split("?")[0];
+    return withoutUrlSecret.slice(0, 120);
   }
   function getScriptSources() {
     try {
@@ -2083,7 +2169,7 @@ var MajsoulHelperBundle = (() => {
   function normalizeMaxEvents(value, fallback = DEFAULT_MAX_EVENTS) {
     const number = Number(value);
     if (!Number.isFinite(number) || number <= 0) return fallback;
-    return Math.max(1, Math.min(1e3, Math.floor(number)));
+    return Math.max(1, Math.min(MAX_CAPTURE_EVENTS, Math.floor(number)));
   }
   function normalizeSampleBytes(value) {
     const number = Number(value);
@@ -2981,6 +3067,7 @@ var MajsoulHelperBundle = (() => {
   var OVERLAY_CAPTURE_NOTE = "Majsoul Helper capture export. Contains message summaries/samples plus liveGameState, liveDebugSummary, liveMvpGate, liveSafetySettings, and liveRealPagePreflight snapshots copied from the overlay; no messages were modified by the helper.";
   var DEFAULT_BINARY_SAMPLE_BYTES2 = 2048;
   var DEFAULT_CAPTURE_LIMIT = 500;
+  var MAX_CAPTURE_LIMIT = 3e3;
   function escapeHtml(value) {
     return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
   }
@@ -3060,7 +3147,7 @@ var MajsoulHelperBundle = (() => {
   function normalizeCaptureLimit(value, fallback = DEFAULT_CAPTURE_LIMIT) {
     const number = Number(value);
     if (!Number.isFinite(number) || number <= 0) return fallback;
-    return Math.max(1, Math.min(1e3, Math.floor(number)));
+    return Math.max(1, Math.min(MAX_CAPTURE_LIMIT, Math.floor(number)));
   }
   function normalizeBinarySampleBytes(value, fallback = DEFAULT_BINARY_SAMPLE_BYTES2) {
     const number = Number(value);
@@ -3247,6 +3334,8 @@ var MajsoulHelperBundle = (() => {
   }
   function formatRuntimeDiagnostics(runtime = {}) {
     const scriptName = runtime.unityBuildScript ? String(runtime.unityBuildScript).split("/").filter(Boolean).at(-1) : "";
+    const instanceShape = formatRuntimeShapeSummary("instance", runtime.unityInstanceShape);
+    const moduleShape = formatRuntimeShapeSummary("Module", runtime.unityModuleShape);
     const parts = [
       `Unity WebGL ${runtime.unityWebGL ? "detected" : "not detected"}`,
       scriptName ? `build ${scriptName}` : null,
@@ -3258,10 +3347,21 @@ var MajsoulHelperBundle = (() => {
       `unityInstance ${runtime.hasUnityInstance ? "ok" : "missing"}`,
       `Module ${runtime.hasUnityModule ? "ok" : "missing"}`,
       `heap ${runtime.heapU8 ? "ok" : "missing"}`,
+      instanceShape,
+      moduleShape,
       `global net ${runtime.netMessageWrapperGlobal ? "ok" : "missing"}`,
       `global Laya ${runtime.layaGlobal ? "ok" : "missing"}`
     ].filter(Boolean);
     return parts.join(" / ");
+  }
+  function formatRuntimeShapeSummary(label, shape = {}) {
+    if (!shape || typeof shape !== "object") return "";
+    const keyCount = shape.keyCount ?? 0;
+    const functionCount = shape.functionKeyCount ?? 0;
+    const prototypeFunctionCount = shape.prototypeFunctionKeyCount ?? 0;
+    if (!keyCount && !functionCount && !prototypeFunctionCount && !shape.unavailableReason) return "";
+    const error = shape.unavailableReason ? ` / shape error ${shape.unavailableReason}` : "";
+    return `${label} keys ${keyCount} / funcs ${functionCount} / proto funcs ${prototypeFunctionCount}${error}`;
   }
   function formatEventBufferDiagnostics(eventBuffer = {}) {
     if (!eventBuffer || typeof eventBuffer !== "object") return "Event buffer: unavailable";
@@ -3720,7 +3820,7 @@ var MajsoulHelperBundle = (() => {
             <button class="mh-button" data-action="self-test">Self-test</button>
           </div>
           ${this.selfTestResult ? this.renderSelfTest(this.selfTestResult) : ""}
-          <label class="mh-muted">Capture limit <input class="mh-input" data-role="capture-limit" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Capture limit, 1 to 1000" value="${escapeHtml(captureLimitValue)}"></label>
+          <label class="mh-muted">Capture limit <input class="mh-input" data-role="capture-limit" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Capture limit, 1 to 3000" value="${escapeHtml(captureLimitValue)}"></label>
           <label class="mh-muted">Binary sample bytes <input class="mh-input" data-role="binary-sample-bytes" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Binary sample bytes, 16 to 4096" value="${escapeHtml(binarySampleValue)}"></label>
           <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"}${helperVersion ? ` / v${escapeHtml(helperVersion)}` : ""} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes / client decode ${installDiagnostics.hooks?.decodedMessage ? "hooked" : "waiting"} / page dispatch ${installDiagnostics.hooks?.decodedDispatcher ? "hooked" : "waiting"}</div>
           <div class="mh-muted" data-role="hook-diagnostics">Hooks: ${escapeHtml(formatHookDiagnostics(installDiagnostics.hooks))}</div>
@@ -4045,7 +4145,7 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
-  var HELPER_VERSION = "0.2.4";
+  var HELPER_VERSION = "0.2.5";
   function readConfig2() {
     try {
       return JSON.parse(window.localStorage.getItem(STORAGE_KEY2) || "{}");
