@@ -106,6 +106,12 @@ function normalizeCaptureLimit(value, fallback = DEFAULT_CAPTURE_LIMIT) {
   return Math.max(1, Math.min(1000, Math.floor(number)));
 }
 
+function normalizeBinarySampleBytes(value, fallback = DEFAULT_BINARY_SAMPLE_BYTES) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return fallback;
+  return Math.max(16, Math.min(4096, Math.floor(number)));
+}
+
 function renderSeatState(state) {
   return [0, 1, 2, 3].map((seat) => {
     const discards = state.discards?.[seat] || [];
@@ -697,6 +703,8 @@ export class Overlay {
     this.manualInput = "";
     this.manualError = "";
     this.realtimeAdvice = false;
+    this.captureLimitDraft = null;
+    this.binarySampleBytesDraft = null;
     const config = readConfig();
     this.captureLimit = normalizeCaptureLimit(config.captureLimit ?? adapter.maxEvents ?? DEFAULT_CAPTURE_LIMIT);
     if (typeof adapter.setMaxEvents === "function") {
@@ -741,7 +749,12 @@ export class Overlay {
       this.render();
     });
     this.adapter.addEventListener("majsoul-helper:config", () => {
-      this.binarySampleBytes = this.adapter.binarySampleBytes;
+      if (this.captureLimitDraft === null && Number.isFinite(this.adapter.maxEvents)) {
+        this.captureLimit = this.adapter.maxEvents;
+      }
+      if (this.binarySampleBytesDraft === null) {
+        this.binarySampleBytes = this.adapter.binarySampleBytes;
+      }
       this.render();
     });
     this.adapter.addEventListener("majsoul-helper:socket", () => {
@@ -755,6 +768,7 @@ export class Overlay {
 
   render() {
     if (!this.root) return;
+    const focusSnapshot = this.captureFocusSnapshot();
     const state = this.gameState.getVisibleState();
     const usingManualInput = this.manualInput.trim().length > 0;
     const hasValidManualTiles = usingManualInput && !this.manualError && this.manualTiles.length > 0;
@@ -790,6 +804,11 @@ export class Overlay {
       liveDebugSummary: debugSummary,
       liveSafetySettings
     });
+    const captureLimitValue = this.captureLimitDraft ?? this.captureLimit;
+    const binarySampleValue = this.binarySampleBytesDraft
+      ?? this.binarySampleBytes
+      ?? installDiagnostics.binarySampleBytes
+      ?? DEFAULT_BINARY_SAMPLE_BYTES;
 
     this.root.innerHTML = `
       <div class="mh-header">
@@ -846,8 +865,8 @@ export class Overlay {
             <button class="mh-button" data-action="self-test">Self-test</button>
           </div>
           ${this.selfTestResult ? this.renderSelfTest(this.selfTestResult) : ""}
-          <label class="mh-muted">Capture limit <input class="mh-input" data-role="capture-limit" type="number" min="1" max="1000" value="${this.captureLimit}"></label>
-          <label class="mh-muted">Binary sample bytes <input class="mh-input" data-role="binary-sample-bytes" type="number" min="16" max="4096" value="${escapeHtml(this.binarySampleBytes ?? installDiagnostics.binarySampleBytes ?? DEFAULT_BINARY_SAMPLE_BYTES)}"></label>
+          <label class="mh-muted">Capture limit <input class="mh-input" data-role="capture-limit" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Capture limit, 1 to 1000" value="${escapeHtml(captureLimitValue)}"></label>
+          <label class="mh-muted">Binary sample bytes <input class="mh-input" data-role="binary-sample-bytes" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" aria-label="Binary sample bytes, 16 to 4096" value="${escapeHtml(binarySampleValue)}"></label>
           <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"}${helperVersion ? ` / v${escapeHtml(helperVersion)}` : ""} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes / client decode ${installDiagnostics.hooks?.decodedMessage ? "hooked" : "waiting"} / page dispatch ${installDiagnostics.hooks?.decodedDispatcher ? "hooked" : "waiting"}</div>
           <div class="mh-muted" data-role="hook-diagnostics">Hooks: ${escapeHtml(formatHookDiagnostics(installDiagnostics.hooks))}</div>
           <div class="mh-muted" data-role="runtime-diagnostics">Runtime: ${escapeHtml(formatRuntimeDiagnostics(installDiagnostics.runtime))}</div>
@@ -870,6 +889,7 @@ export class Overlay {
       </div>
     `;
     this.bindDomEvents();
+    this.restoreFocus(focusSnapshot);
   }
 
   renderAnalysis(analysis) {
@@ -953,24 +973,26 @@ export class Overlay {
         this.render();
       }
     };
-    this.root.querySelector('[data-role="capture-limit"]').onchange = (event) => {
-      this.captureLimit = normalizeCaptureLimit(event.target.value);
-      if (typeof this.adapter.setMaxEvents === "function") {
-        this.captureLimit = this.adapter.setMaxEvents(this.captureLimit);
+    this.bindNumericInput(this.root.querySelector('[data-role="capture-limit"]'), {
+      setDraft: (value) => {
+        this.captureLimitDraft = value;
+      },
+      commit: (value) => this.commitCaptureLimit(value),
+      reset: () => {
+        this.captureLimitDraft = null;
+        this.render();
       }
-      writeConfig({ captureLimit: this.captureLimit });
-      this.render();
-    };
-    this.root.querySelector('[data-role="binary-sample-bytes"]').onchange = (event) => {
-      const value = Number(event.target.value);
-      if (typeof this.adapter.setBinarySampleBytes === "function") {
-        this.binarySampleBytes = this.adapter.setBinarySampleBytes(value);
-      } else {
-        this.binarySampleBytes = Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_BINARY_SAMPLE_BYTES;
+    });
+    this.bindNumericInput(this.root.querySelector('[data-role="binary-sample-bytes"]'), {
+      setDraft: (value) => {
+        this.binarySampleBytesDraft = value;
+      },
+      commit: (value) => this.commitBinarySampleBytes(value),
+      reset: () => {
+        this.binarySampleBytesDraft = null;
+        this.render();
       }
-      writeConfig({ binarySampleBytes: this.binarySampleBytes });
-      this.render();
-    };
+    });
     const manualInput = this.root.querySelector('[data-role="manual-input"]');
     manualInput.oninput = (event) => {
       this.updateManualInput(event.target.value, {
@@ -988,6 +1010,80 @@ export class Overlay {
       this.updateManualInput("", { refocus: true });
     };
     this.enableDrag();
+  }
+
+  bindNumericInput(input, { setDraft, commit, reset }) {
+    input.oninput = (event) => {
+      setDraft(event.target.value.replace(/[^\d]/g, ""));
+      if (event.target.value !== event.target.value.replace(/[^\d]/g, "")) {
+        event.target.value = event.target.value.replace(/[^\d]/g, "");
+      }
+    };
+    input.onchange = (event) => {
+      commit(event.target.value);
+    };
+    input.onblur = (event) => {
+      commit(event.target.value);
+    };
+    input.onkeydown = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commit(event.currentTarget.value);
+        event.currentTarget.blur();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        reset();
+      }
+    };
+  }
+
+  commitCaptureLimit(value) {
+    const nextValue = normalizeCaptureLimit(value, this.captureLimit);
+    this.captureLimitDraft = null;
+    this.captureLimit = nextValue;
+    if (typeof this.adapter.setMaxEvents === "function") {
+      this.captureLimit = this.adapter.setMaxEvents(nextValue);
+    }
+    writeConfig({ captureLimit: this.captureLimit });
+    this.render();
+  }
+
+  commitBinarySampleBytes(value) {
+    const nextValue = normalizeBinarySampleBytes(value, this.binarySampleBytes ?? DEFAULT_BINARY_SAMPLE_BYTES);
+    this.binarySampleBytesDraft = null;
+    if (typeof this.adapter.setBinarySampleBytes === "function") {
+      this.binarySampleBytes = this.adapter.setBinarySampleBytes(nextValue);
+    } else {
+      this.binarySampleBytes = nextValue;
+    }
+    writeConfig({ binarySampleBytes: this.binarySampleBytes });
+    this.render();
+  }
+
+  captureFocusSnapshot() {
+    const active = document.activeElement;
+    if (!active || !this.root.contains(active)) return null;
+    const role = active.getAttribute("data-role");
+    if (!role) return null;
+    return {
+      role,
+      selectionStart: typeof active.selectionStart === "number" ? active.selectionStart : null,
+      selectionEnd: typeof active.selectionEnd === "number" ? active.selectionEnd : null
+    };
+  }
+
+  restoreFocus(snapshot) {
+    if (!snapshot?.role) return;
+    const input = this.root.querySelector(`[data-role="${snapshot.role}"]`);
+    if (!input || typeof input.focus !== "function") return;
+    input.focus({ preventScroll: true });
+    if (typeof input.setSelectionRange === "function" && snapshot.selectionStart !== null) {
+      const length = String(input.value || "").length;
+      const start = Math.min(snapshot.selectionStart, length);
+      const end = Math.min(snapshot.selectionEnd ?? start, length);
+      input.setSelectionRange(start, end);
+    }
   }
 
   updateManualInput(value, { refocus = false, selectionStart = null, selectionEnd = null } = {}) {
@@ -1062,7 +1158,7 @@ export class Overlay {
         liveDebugSummary,
         liveSafetySettings
       }),
-      liveCaptureHealth: captureHealth(this.adapter, liveDebugSummary, installDiagnostics)
+      liveCaptureHealth: captureHealth(this.adapter, liveDebugSummary, installDiagnostics, liveGameState)
     };
   }
 

@@ -12,7 +12,7 @@ describe("docs", () => {
     expect(doc).toContain("@inject-into page");
     expect(doc).toContain("mahjongsoul.game.yo-star.com");
     expect(doc).toContain("Keep realtime advice off");
-    expect(doc).toContain("Majsoul Helper v0.2.2");
+    expect(doc).toContain("Majsoul Helper v0.2.3");
     expect(doc).toContain("page dispatch hooked");
     expect(doc).toContain("Do not use any auto-clicking or auto-discard tool");
     expect(doc).toContain("npm run capture-doctor -- captures/capture-real.json");

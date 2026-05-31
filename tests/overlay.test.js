@@ -12,7 +12,7 @@ class FakeAdapter extends EventTarget {
     this.events = [];
     this.installDiagnostics = {
       installed: true,
-      helperVersion: "0.2.2",
+      helperVersion: "0.2.3",
       installAttempts: 1,
       installedAt: "2026-05-25T00:00:00.000Z",
       installFailureReason: "",
@@ -144,7 +144,7 @@ describe("Overlay", () => {
     overlay.mount();
 
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Training/review use only");
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.2");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.3");
     expect(document.querySelector('[data-action="realtime-advice"]').checked).toBe(false);
     expect(document.querySelector('[data-role="realtime-risk"]')).toBeNull();
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Enter a hand or enable realtime advice");
@@ -648,6 +648,68 @@ describe("Overlay", () => {
     expect(copiedCapture.liveRealPagePreflight).toBeTruthy();
   });
 
+  it("keeps capture config inputs keyboard-editable across live renders", () => {
+    const adapter = new FakeAdapter();
+    const overlay = new Overlay({ adapter, gameState: new GameState() });
+    overlay.mount();
+
+    const rawEvent = {
+      type: "raw_message",
+      source: "ws_in",
+      ts: 1,
+      payload: {
+        kind: "text",
+        length: 2,
+        preview: "{}",
+        sample: "{}",
+        truncated: false
+      }
+    };
+
+    let captureLimit = document.querySelector('[data-role="capture-limit"]');
+    expect(captureLimit.type).toBe("text");
+    expect(captureLimit.inputMode).toBe("numeric");
+    captureLimit.focus();
+    captureLimit.value = "";
+    captureLimit.dispatchEvent(new Event("input", { bubbles: true }));
+    adapter.events = [rawEvent];
+    adapter.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: rawEvent }));
+
+    captureLimit = document.querySelector('[data-role="capture-limit"]');
+    expect(document.activeElement).toBe(captureLimit);
+    expect(captureLimit.value).toBe("");
+
+    captureLimit.value = "1000";
+    captureLimit.dispatchEvent(new Event("input", { bubbles: true }));
+    adapter.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: rawEvent }));
+    captureLimit = document.querySelector('[data-role="capture-limit"]');
+    expect(document.activeElement).toBe(captureLimit);
+    expect(captureLimit.value).toBe("1000");
+    captureLimit.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+    expect(adapter.maxEvents).toBe(1000);
+    expect(JSON.parse(window.localStorage.getItem("majsoul-helper-config"))).toMatchObject({
+      captureLimit: 1000
+    });
+
+    let sampleBytes = document.querySelector('[data-role="binary-sample-bytes"]');
+    expect(sampleBytes.type).toBe("text");
+    expect(sampleBytes.inputMode).toBe("numeric");
+    sampleBytes.focus();
+    sampleBytes.value = "4x096";
+    sampleBytes.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(sampleBytes.value).toBe("4096");
+    adapter.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: rawEvent }));
+    sampleBytes = document.querySelector('[data-role="binary-sample-bytes"]');
+    expect(sampleBytes.value).toBe("4096");
+    sampleBytes.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(adapter.getInstallDiagnostics().binarySampleBytes).toBe(4096);
+    expect(JSON.parse(window.localStorage.getItem("majsoul-helper-config"))).toMatchObject({
+      binarySampleBytes: 4096
+    });
+  });
+
   it("restores stored capture limit and expands the adapter event buffer on mount", () => {
     window.localStorage.setItem("majsoul-helper-config", JSON.stringify({ captureLimit: 500 }));
     const adapter = new FakeAdapter();
@@ -656,7 +718,7 @@ describe("Overlay", () => {
 
     expect(adapter.maxEvents).toBe(500);
     expect(document.querySelector('[data-role="capture-limit"]').value).toBe("500");
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.2");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.3");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 2048 bytes");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("page dispatch hooked");
   });

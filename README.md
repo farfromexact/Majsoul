@@ -93,11 +93,11 @@ The request/response id is decoded as little-endian, matching the public majsoul
 
 ## Capturing Real Page Samples
 
-1. Install `majsoul-helper.user.js` in Tampermonkey and confirm the overlay title shows `Majsoul Helper v0.2.2`.
+1. Install `majsoul-helper.user.js` in Tampermonkey and confirm the overlay title shows `Majsoul Helper v0.2.3`.
 2. Open Mahjong Soul and enter a non-ranked or training-friendly room.
 3. Keep realtime advice off unless explicitly testing it.
 4. Use the overlay debug panel to confirm `raw_message` entries are appearing.
-   The `Install` line should read `installed`, `v0.2.2`, and the `Runtime` line should identify whether the page is JS/Laya or Unity WebGL. On older JS/Laya builds, either `client decode hooked` or `page dispatch hooked` is the best signal that decoded visible fields are available. On Unity WebGL builds, both may remain `waiting`; if the capture health says Unity Action names are captured but payload fields are encoded or unmapped, export the capture and treat the next task as finding a Unity runtime hook or action payload decoder. If earlier replay output reported truncated samples, raise `Binary sample bytes` and collect again.
+   The `Install` line should read `installed`, `v0.2.3`, and the `Runtime` line should identify whether the page is JS/Laya or Unity WebGL. On older JS/Laya builds, either `client decode hooked` or `page dispatch hooked` is the best signal that decoded visible fields are available. On Unity WebGL builds, both may remain `waiting`; if the capture health says Unity Action names are captured but payload fields are encoded or unmapped, export the capture and treat the next task as finding a Unity runtime hook or action payload decoder. If earlier replay output reported truncated samples, raise `Binary sample bytes` and collect again.
 5. Click `Download capture` for a local JSON file, or `Copy capture` if you prefer the clipboard path.
 6. Import the downloaded file with `npm run import-capture -- path/to/majsoul-helper-capture.json`, or run `npm run import-capture` to use the newest matching file in your Downloads folder.
 7. Run `npm run capture-doctor -- captures/capture-real.json` for a compact first diagnosis, then run `npm run real-page-gate` for the strict final real-page check.
