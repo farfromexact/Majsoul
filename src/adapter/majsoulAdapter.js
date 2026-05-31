@@ -89,6 +89,42 @@ function getPageDiagnostics() {
   };
 }
 
+function getRuntimeDiagnostics() {
+  const unityInstance = globalThis.unityInstance || globalThis.gameInstance || null;
+  const unityModule = unityInstance?.Module || null;
+  const unityBuildScript = getScriptSources()
+    .find((src) => /WebGL-release|\.loader\.js|\.framework\.js|\.wasm/i.test(src)) || "";
+  const unityCanvas = safeQuerySelector("#unity-canvas") || safeQuerySelector("canvas");
+  return {
+    unityWebGL: Boolean(unityBuildScript || unityInstance || unityCanvas?.id === "unity-canvas"),
+    unityBuildScript: sanitizeUrl(unityBuildScript),
+    hasUnityInstance: Boolean(unityInstance),
+    hasUnityModule: Boolean(unityModule),
+    heapU8: Boolean(unityModule?.HEAPU8),
+    sendMessageAvailable: Boolean(unityInstance?.SendMessage || unityModule?.SendMessage),
+    netMessageWrapperGlobal: typeof globalThis.net?.MessageWrapper?.decodeMessage === "function",
+    layaGlobal: Boolean(globalThis.Laya?.EventDispatcher)
+  };
+}
+
+function getScriptSources() {
+  try {
+    return Array.from(globalThis.document?.scripts || [])
+      .map((script) => String(script?.src || ""))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function safeQuerySelector(selector) {
+  try {
+    return globalThis.document?.querySelector?.(selector) || null;
+  } catch {
+    return null;
+  }
+}
+
 function sanitizeUrl(value = "") {
   const raw = String(value || "");
   if (!raw) return "";
@@ -98,6 +134,40 @@ function sanitizeUrl(value = "") {
   } catch {
     return raw.split("#")[0].split("?")[0];
   }
+}
+
+function safeParseError(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function summarizeBinaryEnvelope(data) {
+  try {
+    return { envelope: parseBinaryEnvelope(data) };
+  } catch (error) {
+    return {
+      envelope: null,
+      envelopeError: safeParseError(error)
+    };
+  }
+}
+
+function parseStandardMessagesSafely(data) {
+  const events = [];
+  const errors = [];
+  try {
+    events.push(...parseReadableMessage(data));
+  } catch (error) {
+    errors.push(`readable: ${safeParseError(error)}`);
+  }
+  try {
+    events.push(...parseBinaryMessage(data));
+  } catch (error) {
+    errors.push(`binary: ${safeParseError(error)}`);
+  }
+  return {
+    events,
+    parseError: errors.join("; ")
+  };
 }
 
 function summarizeMessage(data, { binarySampleBytes = DEFAULT_BINARY_SAMPLE_BYTES } = {}) {
@@ -112,25 +182,27 @@ function summarizeMessage(data, { binarySampleBytes = DEFAULT_BINARY_SAMPLE_BYTE
   }
   if (data instanceof ArrayBuffer) {
     const sampleLength = normalizeSampleBytes(binarySampleBytes);
+    const envelopeSummary = summarizeBinaryEnvelope(data);
     return {
       kind: "arraybuffer",
       length: data.byteLength,
       preview: `ArrayBuffer(${data.byteLength})`,
       sample: bytesToHex(new Uint8Array(data.slice(0, sampleLength))),
       truncated: data.byteLength > sampleLength,
-      envelope: parseBinaryEnvelope(data)
+      ...envelopeSummary
     };
   }
   if (ArrayBuffer.isView(data)) {
     const sampleLength = normalizeSampleBytes(binarySampleBytes);
     const bytes = new Uint8Array(data.buffer, data.byteOffset, Math.min(data.byteLength, sampleLength));
+    const envelopeSummary = summarizeBinaryEnvelope(data);
     return {
       kind: data.constructor.name,
       length: data.byteLength,
       preview: `${data.constructor.name}(${data.byteLength})`,
       sample: bytesToHex(bytes),
       truncated: data.byteLength > sampleLength,
-      envelope: parseBinaryEnvelope(data)
+      ...envelopeSummary
     };
   }
   if (typeof Blob !== "undefined" && data instanceof Blob) {
@@ -160,13 +232,14 @@ function bytesToHex(bytes) {
 function summarizeBytes(bytes, kind = "blob-arraybuffer", { binarySampleBytes = DEFAULT_BINARY_SAMPLE_BYTES } = {}) {
   const sampleLength = normalizeSampleBytes(binarySampleBytes);
   const sampleBytes = bytes.slice(0, sampleLength);
+  const envelopeSummary = summarizeBinaryEnvelope(bytes);
   return {
     kind,
     length: bytes.byteLength,
     preview: `${kind}(${bytes.byteLength})`,
     sample: bytesToHex(sampleBytes),
     truncated: bytes.byteLength > sampleLength,
-    envelope: parseBinaryEnvelope(bytes)
+    ...envelopeSummary
   };
 }
 
@@ -703,6 +776,7 @@ export class MajsoulAdapter extends EventTarget {
       this.observedInboundEvents.add(messageEvent);
     }
     const summary = summarizeMessage(data, { binarySampleBytes: this.binarySampleBytes });
+    const parsedMessages = parseStandardMessagesSafely(data);
     const now = Date.now();
     if (source === "ws_in" && !messageEvent) {
       const rawKey = `${source}|${url}|${summary.kind}|${summary.length}|${summary.sample || summary.preview}`;
@@ -718,13 +792,14 @@ export class MajsoulAdapter extends EventTarget {
       ts: now,
       payload: {
         url: sanitizeUrl(url),
-        ...summary
+        ...summary,
+        ...(parsedMessages.parseError ? { parseError: parsedMessages.parseError } : {})
       }
     };
     this.events = [event, ...this.events].slice(0, this.maxEvents);
     this.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: event }));
 
-    for (const parsed of [...parseReadableMessage(data), ...parseBinaryMessage(data)]) {
+    for (const parsed of parsedMessages.events) {
       const parsedEvent = {
         ...parsed,
         eventId: this.nextEventId++,
@@ -818,6 +893,7 @@ export class MajsoulAdapter extends EventTarget {
       const bytes = new Uint8Array(await blob.arrayBuffer());
       if (this.paused) return;
       const summary = summarizeBytes(bytes, "blob-arraybuffer", { binarySampleBytes: this.binarySampleBytes });
+      const parsedMessages = parseStandardMessagesSafely(bytes);
       const event = {
         eventId: this.nextEventId++,
         type: "raw_message",
@@ -826,13 +902,14 @@ export class MajsoulAdapter extends EventTarget {
         payload: {
           url: sanitizeUrl(url),
           asyncSampleFor: "blob-async",
-          ...summary
+          ...summary,
+          ...(parsedMessages.parseError ? { parseError: parsedMessages.parseError } : {})
         }
       };
       this.events = [event, ...this.events].slice(0, this.maxEvents);
       this.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: event }));
 
-      for (const parsed of parseBinaryMessage(bytes)) {
+      for (const parsed of parsedMessages.events) {
         const parsedEvent = {
           ...parsed,
           eventId: this.nextEventId++,
@@ -865,6 +942,7 @@ export class MajsoulAdapter extends EventTarget {
       webSocketAvailable: typeof WebSocket !== "undefined",
       paused: this.paused,
       hooks: { ...this.hookDiagnostics },
+      runtime: getRuntimeDiagnostics(),
       socketsCreated: this.socketRecords.length,
       recentSocketUrls: [...new Set(this.socketRecords.map((record) => record.url).filter(Boolean))].slice(0, 5),
       maxEvents: this.maxEvents,
@@ -947,7 +1025,7 @@ export function parseCapturedSampleEvent(event) {
   }
 
   if (data === null) return [];
-  return [...parseReadableMessage(data), ...parseBinaryMessage(data)].map((parsed) => ({
+  return parseStandardMessagesSafely(data).events.map((parsed) => ({
     ...parsed,
     source: event.source,
     ts: event.ts,
@@ -1132,7 +1210,11 @@ export function summarizeCaptureEvents(events = []) {
 function payloadEnvelope(payload = {}) {
   if (payload.envelope) return payload.envelope;
   if (!payload.sample || payload.kind === "text") return null;
-  return parseBinaryEnvelope(hexToBytes(payload.sample));
+  try {
+    return parseBinaryEnvelope(hexToBytes(payload.sample));
+  } catch {
+    return null;
+  }
 }
 
 function envelopeActionNames(envelope = {}) {

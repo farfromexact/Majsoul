@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.2.1
+// @version      0.2.2
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -321,14 +321,15 @@ var MajsoulHelperBundle = (() => {
   }
   function decodeVarint(bytes, offset) {
     let value = 0;
-    let shift = 0;
+    let multiplier = 1;
     let cursor = offset;
-    while (cursor < bytes.length && shift <= 28) {
+    while (cursor < bytes.length && cursor - offset < 10) {
       const byte = bytes[cursor];
-      value |= (byte & 127) << shift;
+      value += (byte & 127) * multiplier;
+      if (!Number.isSafeInteger(value)) return null;
       cursor += 1;
       if ((byte & 128) === 0) return { value, offset: cursor };
-      shift += 7;
+      multiplier *= 128;
     }
     return null;
   }
@@ -360,7 +361,9 @@ var MajsoulHelperBundle = (() => {
         const length = decodeVarint(bytes, offset);
         if (!length) break;
         offset = length.offset;
+        if (!Number.isSafeInteger(length.value) || length.value < 0) break;
         const end = offset + length.value;
+        if (!Number.isSafeInteger(end) || end < offset) break;
         if (end > bytes.length) break;
         const valueBytes = bytes.slice(offset, end);
         lengthDelimited.push({ field, bytes: valueBytes, text: decodeUtf8(valueBytes) });
@@ -368,10 +371,12 @@ var MajsoulHelperBundle = (() => {
         continue;
       }
       if (wireType === 5) {
+        if (offset + 4 > bytes.length) break;
         offset += 4;
         continue;
       }
       if (wireType === 1) {
+        if (offset + 8 > bytes.length) break;
         offset += 8;
         continue;
       }
@@ -987,6 +992,36 @@ var MajsoulHelperBundle = (() => {
       sanitizedUrl: `${origin}${pathname}`
     };
   }
+  function getRuntimeDiagnostics() {
+    const unityInstance = globalThis.unityInstance || globalThis.gameInstance || null;
+    const unityModule = unityInstance?.Module || null;
+    const unityBuildScript = getScriptSources().find((src) => /WebGL-release|\.loader\.js|\.framework\.js|\.wasm/i.test(src)) || "";
+    const unityCanvas = safeQuerySelector("#unity-canvas") || safeQuerySelector("canvas");
+    return {
+      unityWebGL: Boolean(unityBuildScript || unityInstance || unityCanvas?.id === "unity-canvas"),
+      unityBuildScript: sanitizeUrl(unityBuildScript),
+      hasUnityInstance: Boolean(unityInstance),
+      hasUnityModule: Boolean(unityModule),
+      heapU8: Boolean(unityModule?.HEAPU8),
+      sendMessageAvailable: Boolean(unityInstance?.SendMessage || unityModule?.SendMessage),
+      netMessageWrapperGlobal: typeof globalThis.net?.MessageWrapper?.decodeMessage === "function",
+      layaGlobal: Boolean(globalThis.Laya?.EventDispatcher)
+    };
+  }
+  function getScriptSources() {
+    try {
+      return Array.from(globalThis.document?.scripts || []).map((script) => String(script?.src || "")).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+  function safeQuerySelector(selector) {
+    try {
+      return globalThis.document?.querySelector?.(selector) || null;
+    } catch {
+      return null;
+    }
+  }
   function sanitizeUrl(value = "") {
     const raw = String(value || "");
     if (!raw) return "";
@@ -996,6 +1031,37 @@ var MajsoulHelperBundle = (() => {
     } catch {
       return raw.split("#")[0].split("?")[0];
     }
+  }
+  function safeParseError(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  function summarizeBinaryEnvelope(data) {
+    try {
+      return { envelope: parseBinaryEnvelope(data) };
+    } catch (error) {
+      return {
+        envelope: null,
+        envelopeError: safeParseError(error)
+      };
+    }
+  }
+  function parseStandardMessagesSafely(data) {
+    const events = [];
+    const errors = [];
+    try {
+      events.push(...parseReadableMessage(data));
+    } catch (error) {
+      errors.push(`readable: ${safeParseError(error)}`);
+    }
+    try {
+      events.push(...parseBinaryMessage(data));
+    } catch (error) {
+      errors.push(`binary: ${safeParseError(error)}`);
+    }
+    return {
+      events,
+      parseError: errors.join("; ")
+    };
   }
   function summarizeMessage(data, { binarySampleBytes = DEFAULT_BINARY_SAMPLE_BYTES } = {}) {
     if (typeof data === "string") {
@@ -1009,25 +1075,27 @@ var MajsoulHelperBundle = (() => {
     }
     if (data instanceof ArrayBuffer) {
       const sampleLength = normalizeSampleBytes(binarySampleBytes);
+      const envelopeSummary = summarizeBinaryEnvelope(data);
       return {
         kind: "arraybuffer",
         length: data.byteLength,
         preview: `ArrayBuffer(${data.byteLength})`,
         sample: bytesToHex2(new Uint8Array(data.slice(0, sampleLength))),
         truncated: data.byteLength > sampleLength,
-        envelope: parseBinaryEnvelope(data)
+        ...envelopeSummary
       };
     }
     if (ArrayBuffer.isView(data)) {
       const sampleLength = normalizeSampleBytes(binarySampleBytes);
       const bytes = new Uint8Array(data.buffer, data.byteOffset, Math.min(data.byteLength, sampleLength));
+      const envelopeSummary = summarizeBinaryEnvelope(data);
       return {
         kind: data.constructor.name,
         length: data.byteLength,
         preview: `${data.constructor.name}(${data.byteLength})`,
         sample: bytesToHex2(bytes),
         truncated: data.byteLength > sampleLength,
-        envelope: parseBinaryEnvelope(data)
+        ...envelopeSummary
       };
     }
     if (typeof Blob !== "undefined" && data instanceof Blob) {
@@ -1055,13 +1123,14 @@ var MajsoulHelperBundle = (() => {
   function summarizeBytes(bytes, kind = "blob-arraybuffer", { binarySampleBytes = DEFAULT_BINARY_SAMPLE_BYTES } = {}) {
     const sampleLength = normalizeSampleBytes(binarySampleBytes);
     const sampleBytes = bytes.slice(0, sampleLength);
+    const envelopeSummary = summarizeBinaryEnvelope(bytes);
     return {
       kind,
       length: bytes.byteLength,
       preview: `${kind}(${bytes.byteLength})`,
       sample: bytesToHex2(sampleBytes),
       truncated: bytes.byteLength > sampleLength,
-      envelope: parseBinaryEnvelope(bytes)
+      ...envelopeSummary
     };
   }
   function summarizeDecodedMessage(message, hookName, parsedEvents = []) {
@@ -1551,6 +1620,7 @@ var MajsoulHelperBundle = (() => {
         this.observedInboundEvents.add(messageEvent);
       }
       const summary = summarizeMessage(data, { binarySampleBytes: this.binarySampleBytes });
+      const parsedMessages = parseStandardMessagesSafely(data);
       const now = Date.now();
       if (source === "ws_in" && !messageEvent) {
         const rawKey = `${source}|${url}|${summary.kind}|${summary.length}|${summary.sample || summary.preview}`;
@@ -1565,12 +1635,13 @@ var MajsoulHelperBundle = (() => {
         ts: now,
         payload: {
           url: sanitizeUrl(url),
-          ...summary
+          ...summary,
+          ...parsedMessages.parseError ? { parseError: parsedMessages.parseError } : {}
         }
       };
       this.events = [event, ...this.events].slice(0, this.maxEvents);
       this.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: event }));
-      for (const parsed of [...parseReadableMessage(data), ...parseBinaryMessage(data)]) {
+      for (const parsed of parsedMessages.events) {
         const parsedEvent = {
           ...parsed,
           eventId: this.nextEventId++,
@@ -1656,6 +1727,7 @@ var MajsoulHelperBundle = (() => {
         const bytes = new Uint8Array(await blob.arrayBuffer());
         if (this.paused) return;
         const summary = summarizeBytes(bytes, "blob-arraybuffer", { binarySampleBytes: this.binarySampleBytes });
+        const parsedMessages = parseStandardMessagesSafely(bytes);
         const event = {
           eventId: this.nextEventId++,
           type: "raw_message",
@@ -1664,12 +1736,13 @@ var MajsoulHelperBundle = (() => {
           payload: {
             url: sanitizeUrl(url),
             asyncSampleFor: "blob-async",
-            ...summary
+            ...summary,
+            ...parsedMessages.parseError ? { parseError: parsedMessages.parseError } : {}
           }
         };
         this.events = [event, ...this.events].slice(0, this.maxEvents);
         this.dispatchEvent(new CustomEvent("majsoul-helper:event", { detail: event }));
-        for (const parsed of parseBinaryMessage(bytes)) {
+        for (const parsed of parsedMessages.events) {
           const parsedEvent = {
             ...parsed,
             eventId: this.nextEventId++,
@@ -1700,6 +1773,7 @@ var MajsoulHelperBundle = (() => {
         webSocketAvailable: typeof WebSocket !== "undefined",
         paused: this.paused,
         hooks: { ...this.hookDiagnostics },
+        runtime: getRuntimeDiagnostics(),
         socketsCreated: this.socketRecords.length,
         recentSocketUrls: [...new Set(this.socketRecords.map((record) => record.url).filter(Boolean))].slice(0, 5),
         maxEvents: this.maxEvents,
@@ -1830,7 +1904,11 @@ var MajsoulHelperBundle = (() => {
   function payloadEnvelope(payload = {}) {
     if (payload.envelope) return payload.envelope;
     if (!payload.sample || payload.kind === "text") return null;
-    return parseBinaryEnvelope(hexToBytes(payload.sample));
+    try {
+      return parseBinaryEnvelope(hexToBytes(payload.sample));
+    } catch {
+      return null;
+    }
   }
   function envelopeActionNames(envelope = {}) {
     return [
@@ -3003,6 +3081,19 @@ var MajsoulHelperBundle = (() => {
     ].filter(Boolean);
     return parts.join(" / ");
   }
+  function formatRuntimeDiagnostics(runtime = {}) {
+    const scriptName = runtime.unityBuildScript ? String(runtime.unityBuildScript).split("/").filter(Boolean).at(-1) : "";
+    const parts = [
+      `Unity WebGL ${runtime.unityWebGL ? "detected" : "not detected"}`,
+      scriptName ? `build ${scriptName}` : null,
+      `unityInstance ${runtime.hasUnityInstance ? "ok" : "missing"}`,
+      `Module ${runtime.hasUnityModule ? "ok" : "missing"}`,
+      `heap ${runtime.heapU8 ? "ok" : "missing"}`,
+      `global net ${runtime.netMessageWrapperGlobal ? "ok" : "missing"}`,
+      `global Laya ${runtime.layaGlobal ? "ok" : "missing"}`
+    ].filter(Boolean);
+    return parts.join(" / ");
+  }
   function formatEventBufferDiagnostics(eventBuffer = {}) {
     if (!eventBuffer || typeof eventBuffer !== "object") return "Event buffer: unavailable";
     const retained = eventBuffer.retainedEvents ?? "-";
@@ -3013,7 +3104,12 @@ var MajsoulHelperBundle = (() => {
     const newest = eventBuffer.newestEventId ?? "-";
     return `Event buffer: retained ${retained}/${total} / max ${maxEvents} / dropped ${dropped} / ids ${oldest}-${newest}`;
   }
-  function captureHealth(adapter, summary, installDiagnostics = {}) {
+  function stateHasTableData(state = {}) {
+    return Boolean(
+      state.hand?.length || state.drawnTile || state.discards?.some((tiles) => tiles.length) || state.melds?.some((melds) => melds.length) || state.doraIndicators?.length || state.visibleTiles?.length || state.chang !== null && state.chang !== void 0 || state.ju !== null && state.ju !== void 0 || state.round !== null && state.round !== void 0
+    );
+  }
+  function captureHealth(adapter, summary, installDiagnostics = {}, state = {}) {
     if (adapter.paused) {
       return "Paused. Resume capture before sampling live traffic.";
     }
@@ -3037,6 +3133,12 @@ var MajsoulHelperBundle = (() => {
     }
     if (summary.parsed === 0) {
       return "Liqi envelopes captured, but no standard game events parsed yet.";
+    }
+    if (!stateHasTableData(state)) {
+      if (installDiagnostics.runtime?.unityWebGL) {
+        return "Unity WebGL Action names are captured, but action payload fields are still encoded or unmapped. State restoration needs a Unity runtime hook or payload decoder.";
+      }
+      return "Standard game event names parsed, but no usable gameState fields updated yet. Inspect action payload field diagnostics.";
     }
     return "Standard game events parsed. Compare gameState with the visible table.";
   }
@@ -3443,10 +3545,11 @@ var MajsoulHelperBundle = (() => {
           <label class="mh-muted">Binary sample bytes <input class="mh-input" data-role="binary-sample-bytes" type="number" min="16" max="4096" value="${escapeHtml(this.binarySampleBytes ?? installDiagnostics.binarySampleBytes ?? DEFAULT_BINARY_SAMPLE_BYTES2)}"></label>
           <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"}${helperVersion ? ` / v${escapeHtml(helperVersion)}` : ""} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes / client decode ${installDiagnostics.hooks?.decodedMessage ? "hooked" : "waiting"} / page dispatch ${installDiagnostics.hooks?.decodedDispatcher ? "hooked" : "waiting"}</div>
           <div class="mh-muted" data-role="hook-diagnostics">Hooks: ${escapeHtml(formatHookDiagnostics(installDiagnostics.hooks))}</div>
+          <div class="mh-muted" data-role="runtime-diagnostics">Runtime: ${escapeHtml(formatRuntimeDiagnostics(installDiagnostics.runtime))}</div>
           <div class="${Number(installDiagnostics.eventBuffer?.droppedBeforeRetained || 0) > 0 ? "mh-warning" : "mh-muted"}" data-role="event-buffer-diagnostics">${escapeHtml(formatEventBufferDiagnostics(installDiagnostics.eventBuffer))}</div>
           ${installDiagnostics.recentSocketUrls?.length ? `<div class="mh-muted">Recent sockets: ${escapeHtml(installDiagnostics.recentSocketUrls.join(" / "))}</div>` : ""}
           ${installDiagnostics.installFailureReason ? `<div class="mh-warning">${escapeHtml(installDiagnostics.installFailureReason)}</div>` : ""}
-          <div class="mh-muted" data-role="capture-health">Capture health: ${escapeHtml(captureHealth(this.adapter, debugSummary, installDiagnostics))}</div>
+          <div class="mh-muted" data-role="capture-health">Capture health: ${escapeHtml(captureHealth(this.adapter, debugSummary, installDiagnostics, state))}</div>
           ${renderLiveMvpGate(liveMvpGate)}
           ${renderLiveRealPagePreflight(liveRealPagePreflight)}
           <div class="mh-muted">Capture summary: raw ${debugSummary.raw} / inbound ${debugSummary.inbound} / outbound ${debugSummary.outbound} / parsed ${debugSummary.parsed} / errors ${debugSummary.captureErrors} / diagnostics ${debugSummary.diagnostics} / envelopes ${debugSummary.envelopes} / truncated ${debugSummary.truncated} / methods ${debugSummary.methods} / actions ${debugSummary.actions}</div>
@@ -3691,7 +3794,7 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
-  var HELPER_VERSION = "0.2.1";
+  var HELPER_VERSION = "0.2.2";
   function readConfig2() {
     try {
       return JSON.parse(window.localStorage.getItem(STORAGE_KEY2) || "{}");

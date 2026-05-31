@@ -43,6 +43,7 @@ const lines = [
   `Page: ${formatPage(page)}`,
   `Preflight: ${formatPreflight(preflight)}`,
   `Hook: ${formatHook(helperDiagnostics)}`,
+  `Runtime: ${formatRuntime(helperDiagnostics?.runtime)}`,
   `Safety: ${formatSafetySettings(safetySettings)}`,
   `Event buffer: ${formatEventBuffer(helperDiagnostics?.eventBuffer)}`,
   `Traffic: raw ${report.diagnostics?.rawMessages ?? 0} / inbound ${report.diagnostics?.inboundRawMessages ?? 0} / outbound ${report.diagnostics?.outboundRawMessages ?? 0} / envelopes ${report.diagnostics?.rawMessagesWithEnvelope ?? 0} / actions ${report.diagnostics?.rawActionTotal ?? 0} / replayed ${report.eventCount ?? 0}`,
@@ -174,6 +175,22 @@ function formatHook(helperDiagnostics) {
     `sample ${helperDiagnostics.binarySampleBytes ?? "-"} bytes`,
     `onmessage ${hook.onmessage === undefined ? "unknown" : hook.onmessage ? "ok" : "off"} (${hook.onmessageMode || "unknown"})`
   ].join(" / ");
+}
+
+function formatRuntime(runtime) {
+  if (!runtime || typeof runtime !== "object") return "missing";
+  const build = runtime.unityBuildScript
+    ? String(runtime.unityBuildScript).split("/").filter(Boolean).at(-1)
+    : "";
+  return [
+    `Unity WebGL ${runtime.unityWebGL ? "detected" : "not detected"}`,
+    build ? `build ${build}` : null,
+    `unityInstance ${runtime.hasUnityInstance ? "ok" : "missing"}`,
+    `Module ${runtime.hasUnityModule ? "ok" : "missing"}`,
+    `heap ${runtime.heapU8 ? "ok" : "missing"}`,
+    `global net ${runtime.netMessageWrapperGlobal ? "ok" : "missing"}`,
+    `global Laya ${runtime.layaGlobal ? "ok" : "missing"}`
+  ].filter(Boolean).join(" / ");
 }
 
 function formatSafetySettings(settings) {

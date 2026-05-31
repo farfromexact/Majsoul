@@ -22,6 +22,7 @@ describe("capture doctor script", () => {
     expect(result.stdout).toContain("Page: missing");
     expect(result.stdout).toContain("Preflight: missing");
     expect(result.stdout).toContain("Hook: missing");
+    expect(result.stdout).toContain("Runtime: missing");
     expect(result.stdout).toContain("Safety: missing");
     expect(result.stdout).toContain("Event buffer: missing");
     expect(result.stdout).toContain("Traffic: raw 3 / inbound 3 / outbound 0 / envelopes 2 / actions 2 / replayed 3");
@@ -87,6 +88,15 @@ describe("capture doctor script", () => {
         onmessage: true,
         onmessageMode: "accessor"
       },
+      runtime: {
+        unityWebGL: true,
+        unityBuildScript: "https://game.maj-soul.com/1/Build/chs_t-WebGL-release-4.0.43(43).loader.js",
+        hasUnityInstance: true,
+        hasUnityModule: true,
+        heapU8: true,
+        netMessageWrapperGlobal: false,
+        layaGlobal: false
+      },
       eventBuffer: {
         retainedEvents: 3,
         totalEventsSinceClear: 12,
@@ -122,7 +132,43 @@ describe("capture doctor script", () => {
     expect(result.stdout).toContain("Page: https://game.maj-soul.com/1/ (Mahjong Soul)");
     expect(result.stdout).toContain("Preflight: not ready (4/5) missing liveMvpGateReady next Collect from round start until the MVP gate is complete.");
     expect(result.stdout).toContain("Hook: installed / capture running / WebSocket available / sockets 1 / sample 2048 bytes / onmessage ok (accessor)");
+    expect(result.stdout).toContain("Runtime: Unity WebGL detected / build chs_t-WebGL-release-4.0.43(43).loader.js / unityInstance ok / Module ok / heap ok / global net missing / global Laya missing");
     expect(result.stdout).toContain("Safety: realtime advice off (off) / capture running / automation disabled / message mutation disabled");
     expect(result.stdout).toContain("Event buffer: retained 3/12 / dropped 9 / ids 10-12 / max 300");
+  });
+
+  it("surfaces Unity runtime decoder recommendations", () => {
+    const dir = mkdtempSync(join(tmpdir(), "majsoul-helper-"));
+    const capture = JSON.parse(readFileSync("tests/fixtures/capture-draw-discard.json", "utf8"));
+    capture.helperDiagnostics = {
+      installed: true,
+      paused: false,
+      webSocketAvailable: true,
+      socketsCreated: 1,
+      binarySampleBytes: 2048,
+      hooks: {
+        onmessage: true,
+        onmessageMode: "accessor",
+        decodedMessage: false,
+        decodedDispatcher: false
+      },
+      runtime: {
+        unityWebGL: true,
+        unityBuildScript: "https://game.maj-soul.com/1/Build/chs_t-WebGL-release-4.0.43(43).loader.js",
+        hasUnityInstance: true,
+        hasUnityModule: true,
+        heapU8: true,
+        netMessageWrapperGlobal: false,
+        layaGlobal: false
+      }
+    };
+    const capturePath = join(dir, "capture-unity-not-ready.json");
+    writeFileSync(capturePath, JSON.stringify(capture));
+
+    const result = runDoctor([capturePath]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Runtime: Unity WebGL detected");
+    expect(result.stdout).toContain("Unity WebGL runtime detected: raw ActionPrototype names are captured, but the old JS decode hooks are not available.");
   });
 });

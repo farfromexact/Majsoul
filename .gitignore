@@ -2,4 +2,7 @@ node_modules/
 captures/*.json
 captures/*.jsonl
 captures/*.txt
+captures/*.html
+captures/*.js
+captures/*.gz
 !captures/README.md

@@ -296,6 +296,18 @@ describe("messageParser", () => {
     expect(parseReadableMessage(JSON.stringify({ name: "UnknownThing", data: { tile: "1m" } }))).toEqual([]);
   });
 
+  it("treats malformed binary protobuf lengths as an unparsed frame instead of throwing", () => {
+    const malformedHugeLength = new Uint8Array([1, 0x0a, 0xff, 0xff, 0xff, 0xff, 0x7f, 0x00]);
+    const malformedOverlongVarint = new Uint8Array([1, 0x0a, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01]);
+
+    expect(() => parseBinaryEnvelope(malformedHugeLength)).not.toThrow();
+    expect(() => parseBinaryMessage(malformedHugeLength)).not.toThrow();
+    expect(() => parseBinaryEnvelope(malformedOverlongVarint)).not.toThrow();
+    expect(() => parseBinaryMessage(malformedOverlongVarint)).not.toThrow();
+    expect(parseBinaryMessage(malformedHugeLength)).toEqual([]);
+    expect(parseBinaryMessage(malformedOverlongVarint)).toEqual([]);
+  });
+
   it("extracts method names from Mahjong Soul binary envelopes", () => {
     const frame = new Uint8Array([
       1,

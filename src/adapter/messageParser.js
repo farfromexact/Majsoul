@@ -358,14 +358,15 @@ function summarizePayloadFields(bytes) {
 
 function decodeVarint(bytes, offset) {
   let value = 0;
-  let shift = 0;
+  let multiplier = 1;
   let cursor = offset;
-  while (cursor < bytes.length && shift <= 28) {
+  while (cursor < bytes.length && cursor - offset < 10) {
     const byte = bytes[cursor];
-    value |= (byte & 0x7f) << shift;
+    value += (byte & 0x7f) * multiplier;
+    if (!Number.isSafeInteger(value)) return null;
     cursor += 1;
     if ((byte & 0x80) === 0) return { value, offset: cursor };
-    shift += 7;
+    multiplier *= 128;
   }
   return null;
 }
@@ -401,7 +402,9 @@ function parseProtobufEnvelope(bytes) {
       const length = decodeVarint(bytes, offset);
       if (!length) break;
       offset = length.offset;
+      if (!Number.isSafeInteger(length.value) || length.value < 0) break;
       const end = offset + length.value;
+      if (!Number.isSafeInteger(end) || end < offset) break;
       if (end > bytes.length) break;
       const valueBytes = bytes.slice(offset, end);
       lengthDelimited.push({ field, bytes: valueBytes, text: decodeUtf8(valueBytes) });
@@ -410,11 +413,13 @@ function parseProtobufEnvelope(bytes) {
     }
 
     if (wireType === 5) {
+      if (offset + 4 > bytes.length) break;
       offset += 4;
       continue;
     }
 
     if (wireType === 1) {
+      if (offset + 8 > bytes.length) break;
       offset += 8;
       continue;
     }

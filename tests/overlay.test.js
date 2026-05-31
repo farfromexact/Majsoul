@@ -12,7 +12,7 @@ class FakeAdapter extends EventTarget {
     this.events = [];
     this.installDiagnostics = {
       installed: true,
-      helperVersion: "0.2.1",
+      helperVersion: "0.2.2",
       installAttempts: 1,
       installedAt: "2026-05-25T00:00:00.000Z",
       installFailureReason: "",
@@ -29,6 +29,16 @@ class FakeAdapter extends EventTarget {
         decodedMessageMode: "not-installed",
         decodedDispatcher: true,
         decodedDispatcherMode: "Laya.EventDispatcher.event"
+      },
+      runtime: {
+        unityWebGL: false,
+        unityBuildScript: "",
+        hasUnityInstance: false,
+        hasUnityModule: false,
+        heapU8: false,
+        sendMessageAvailable: false,
+        netMessageWrapperGlobal: false,
+        layaGlobal: true
       },
       socketsCreated: 1,
       recentSocketUrls: ["wss://example.test/socket"],
@@ -134,7 +144,7 @@ describe("Overlay", () => {
     overlay.mount();
 
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Training/review use only");
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.1");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.2");
     expect(document.querySelector('[data-action="realtime-advice"]').checked).toBe(false);
     expect(document.querySelector('[data-role="realtime-risk"]')).toBeNull();
     expect(document.querySelector("#majsoul-helper-overlay").textContent).toContain("Enter a hand or enable realtime advice");
@@ -646,7 +656,7 @@ describe("Overlay", () => {
 
     expect(adapter.maxEvents).toBe(500);
     expect(document.querySelector('[data-role="capture-limit"]').value).toBe("500");
-    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.1");
+    expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("v0.2.2");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("sample 2048 bytes");
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("page dispatch hooked");
   });
@@ -729,7 +739,7 @@ describe("Overlay", () => {
     overlay.mount();
 
     const text = document.querySelector("#majsoul-helper-overlay").textContent;
-    expect(text).toContain("Capture health: Standard game events parsed");
+    expect(text).toContain("Capture health: Standard game event names parsed, but no usable gameState fields updated yet");
     expect(text).toContain("Capture summary: raw 1 / inbound 1 / outbound 0 / parsed 1 / errors 0 / diagnostics 0 / envelopes 1 / truncated 1 / methods 1 / actions 1");
     expect(text).toContain("Some captured samples are truncated");
   });
@@ -803,6 +813,7 @@ describe("Overlay", () => {
     const text = document.querySelector("#majsoul-helper-overlay").textContent;
     expect(document.querySelector('[data-role="install-diagnostics"]').textContent).toContain("Install: not installed / capture running / attempts 3 / WebSocket missing / sockets 0 / sample 1024 bytes");
     expect(document.querySelector('[data-role="hook-diagnostics"]').textContent).toContain("constructor off / statics 3 copied / 1 failed / prototype.constructor not-installed / send off / addEventListener off / removeEventListener off / onmessage off (not-installed)");
+    expect(document.querySelector('[data-role="runtime-diagnostics"]').textContent).toContain("Runtime:");
     expect(text).toContain("WebSocket is not available on this page context yet.");
   });
 
@@ -994,6 +1005,34 @@ describe("Overlay", () => {
     }];
     overlay.render();
     expect(document.querySelector('[data-role="capture-health"]').textContent).toContain("no standard game events parsed");
+
+    adapter.installDiagnostics.runtime = {
+      unityWebGL: true,
+      unityBuildScript: "https://game.maj-soul.com/1/Build/chs_t-WebGL-release-4.0.43(43).loader.js",
+      hasUnityInstance: true,
+      hasUnityModule: true,
+      heapU8: true,
+      sendMessageAvailable: true,
+      netMessageWrapperGlobal: false,
+      layaGlobal: false
+    };
+    adapter.events = [
+      {
+        type: "raw_message",
+        source: "ws_in",
+        ts: 4,
+        payload: { kind: "Uint8Array", envelope: { methodName: ".lq.ActionPrototype", actionName: "ActionDealTile" } }
+      },
+      {
+        type: "draw_tile",
+        source: "ws_in",
+        ts: 5,
+        payload: { binaryEnvelope: { methodName: ".lq.ActionPrototype", actionName: "ActionDealTile" } }
+      }
+    ];
+    overlay.render();
+    expect(document.querySelector('[data-role="runtime-diagnostics"]').textContent).toContain("Unity WebGL detected");
+    expect(document.querySelector('[data-role="capture-health"]').textContent).toContain("Unity WebGL Action names are captured");
   });
 
   it("renders a live MVP gate aligned with real-page replay acceptance", () => {

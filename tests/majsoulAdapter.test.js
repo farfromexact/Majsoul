@@ -6,6 +6,9 @@ const originalCustomEvent = globalThis.CustomEvent;
 const originalLocationDescriptor = Object.getOwnPropertyDescriptor(globalThis, "location");
 const originalNet = globalThis.net;
 const originalLaya = globalThis.Laya;
+const originalDocument = globalThis.document;
+const originalUnityInstance = globalThis.unityInstance;
+const originalGameInstance = globalThis.gameInstance;
 
 class TestCustomEvent extends Event {
   constructor(type, options = {}) {
@@ -149,6 +152,21 @@ describe("MajsoulAdapter", () => {
       delete globalThis.Laya;
     } else {
       globalThis.Laya = originalLaya;
+    }
+    if (originalDocument === undefined) {
+      delete globalThis.document;
+    } else {
+      globalThis.document = originalDocument;
+    }
+    if (originalUnityInstance === undefined) {
+      delete globalThis.unityInstance;
+    } else {
+      globalThis.unityInstance = originalUnityInstance;
+    }
+    if (originalGameInstance === undefined) {
+      delete globalThis.gameInstance;
+    } else {
+      globalThis.gameInstance = originalGameInstance;
     }
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -970,6 +988,37 @@ describe("MajsoulAdapter", () => {
       rawMessages: 1,
       byKind: { Uint8Array: 1 }
     });
+  });
+
+  it("exports sanitized Unity WebGL runtime diagnostics when present", () => {
+    globalThis.WebSocket = FakeWebSocket;
+    globalThis.CustomEvent = TestCustomEvent;
+    globalThis.document = {
+      scripts: [
+        { src: "https://game.maj-soul.com/1/Build/chs_t-WebGL-release-4.0.43(43).loader.js?token=secret#debug" }
+      ],
+      querySelector(selector) {
+        return selector === "#unity-canvas" ? { id: "unity-canvas" } : null;
+      }
+    };
+    globalThis.unityInstance = {
+      Module: { HEAPU8: new Uint8Array() },
+      SendMessage() {}
+    };
+    const adapter = new MajsoulAdapter();
+    adapter.install();
+
+    expect(adapter.getInstallDiagnostics().runtime).toMatchObject({
+      unityWebGL: true,
+      unityBuildScript: "https://game.maj-soul.com/1/Build/chs_t-WebGL-release-4.0.43(43).loader.js",
+      hasUnityInstance: true,
+      hasUnityModule: true,
+      heapU8: true,
+      sendMessageAvailable: true,
+      netMessageWrapperGlobal: false,
+      layaGlobal: false
+    });
+    expect(JSON.stringify(adapter.exportCapture().helperDiagnostics.runtime)).not.toContain("token=secret");
   });
 
   it("uses a larger bounded default binary capture sample", () => {

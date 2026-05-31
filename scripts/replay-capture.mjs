@@ -704,6 +704,15 @@ function buildRecommendations(diagnostics, replaySummary, acceptance, stateDiagn
   if (diagnostics.unparsedActions.length > 0) {
     recommendations.push(`Map unparsed ActionPrototype events: ${diagnostics.unparsedActions.map((entry) => entry.name).join(", ")}.`);
   }
+  if (
+    helperDiagnostics?.runtime?.unityWebGL
+    && diagnostics.rawActionTotal > 0
+    && helperDiagnostics?.hooks?.decodedMessage === false
+    && helperDiagnostics?.hooks?.decodedDispatcher === false
+    && !acceptance.readyForRealPageMvp
+  ) {
+    recommendations.push("Unity WebGL runtime detected: raw ActionPrototype names are captured, but the old JS decode hooks are not available. Map a Unity runtime hook or decode the action payload before expecting seats, tiles, and hand state to update.");
+  }
   if (stateDiagnostics.invalidTiles?.length > 0) {
     recommendations.push("Invalid tile names were ignored while replaying state. Inspect stateDiagnostics.invalidTiles contexts before trusting field mapping.");
   }

@@ -18,11 +18,11 @@ Use this checklist to collect a useful Mahjong Soul capture for protocol mapping
 ## In The Browser
 
 1. Open Mahjong Soul web.
-2. Confirm the `Majsoul Helper v0.2.1` overlay appears. If the title does not show `v0.2.1`, Tampermonkey is still running an older generated userscript.
+2. Confirm the `Majsoul Helper v0.2.2` overlay appears. If the title does not show `v0.2.2`, Tampermonkey is still running an older generated userscript.
 3. Open the overlay debug section and click `Self-test`. It should report `Self-test: ok`; this only checks local parser wiring and does not send WebSocket messages or modify `gameState`.
 4. Join a safe testing room.
-5. Confirm the `Install` line reads `installed`, `v0.2.1`, `capture running`, `WebSocket available`, and then either `client decode hooked` or `page dispatch hooked` after the game code has loaded. If both stay `waiting` after joining a table and reloading once, export anyway; that capture is useful for finding the next runtime hook point.
-6. Check the `Hooks` line. `constructor`, `send`, and `addEventListener` should read `ok`; the constructor static-property copy count should not show failures; and `prototype.constructor` should read `patched`. `onmessage` may use `accessor` or a fallback mode; if it reads `non-configurable`, continue sampling but pay close attention to whether inbound traffic appears. On current Mahjong Soul builds, the passive client-decode and page-dispatch hooks are important because raw `ActionPrototype.data` may not be plain protobuf even though the action name is visible.
+5. Confirm the `Install` line reads `installed`, `v0.2.2`, `capture running`, and `WebSocket available`. On older JS/Laya builds, either `client decode hooked` or `page dispatch hooked` after the game code has loaded is the best signal that decoded visible fields are available. On current Unity WebGL builds, both can stay `waiting`; export anyway if `raw_message` entries and `ActionPrototype` names appear, because that capture identifies the next Unity hook or decoder target.
+6. Check the `Runtime` and `Hooks` lines. `Runtime: Unity WebGL detected` means the old `net.MessageWrapper` and `Laya.EventDispatcher` hooks may not exist, even when capture is installed correctly. `constructor`, `send`, and `addEventListener` should still read `ok`; the constructor static-property copy count should not show failures; and `prototype.constructor` should read `patched`. `onmessage` may use `accessor` or a fallback mode; if it reads `non-configurable`, continue sampling but pay close attention to whether inbound traffic appears. On current Mahjong Soul builds, raw `ActionPrototype.data` may not be plain protobuf even though the action name is visible.
 7. Check the `sockets` count. If it remains `0`, reload the game client after the userscript is enabled and wait for Mahjong Soul to open its WebSocket.
 8. Wait for `raw_message` entries.
 9. Perform normal visible game actions only: draw, discard, call if the table naturally offers it, riichi if the test situation naturally reaches it.
@@ -94,7 +94,7 @@ The overlay debug section also shows `Unparsed actions` and a compact `Action di
 
 When the browser delivers WebSocket data as `Blob`, captures include a small `blob` placeholder followed by an async `blob-arraybuffer` sample. The placeholder is not a truncation signal; replay diagnostics and parser mapping should use the `blob-arraybuffer` entry.
 
-If `acceptance.missing` includes `drawTileSeatParsed` or `discardTileSeatParsed`, the parser found a draw/discard action but did not recover a valid seat number. First check whether `captureMetadata.helperDiagnostics.helperVersion` is `0.2.1`, whether `hooks.decodedMessage` or `hooks.decodedDispatcher` is true, and whether the capture has `client_decode` events. If not, collect again after the title shows `v0.2.1` and the install line says `client decode hooked` or `page dispatch hooked`. If decoded events are present but seats are still missing, inspect the corresponding `ActionDealTile` or `ActionDiscardTile` decoded payload summary or `payload.binaryEnvelope.actionPayloadSample` in replay output, then adjust field mapping before trusting any automatic table state.
+If `acceptance.missing` includes `drawTileSeatParsed` or `discardTileSeatParsed`, the parser found a draw/discard action but did not recover a valid seat number. First check whether `captureMetadata.helperDiagnostics.helperVersion` is `0.2.2`, whether `captureMetadata.helperDiagnostics.runtime.unityWebGL` is true, whether `hooks.decodedMessage` or `hooks.decodedDispatcher` is true, and whether the capture has `client_decode` events. If Unity WebGL is detected and both old JS hooks are still waiting, do not keep recapturing the same flow expecting seats to appear; inspect `ActionDealTile` or `ActionDiscardTile` `payload.binaryEnvelope.actionPayloadSample` and find a Unity decode hook or action payload decoder. If decoded events are present but seats are still missing, inspect the corresponding decoded payload summary or `payload.binaryEnvelope.actionPayloadSample` in replay output, then adjust field mapping before trusting any automatic table state.
 
 If `acceptance.missing` includes `gameStateHandUpdated`, collect a sample that includes the start of a round or inspect `ActionNewRound` hand tile fields before treating the capture as a complete MVP state-restoration pass.
 
@@ -124,7 +124,7 @@ When `Download capture` or `Copy capture` is used from the overlay, the export i
 
 Captured helper events can include both raw WebSocket samples and live parsed standard events. The replay command treats raw samples as the source of truth when they are complete enough to parse, skips matching parsed duplicates, and preserves parsed fallback events when the raw sample was truncated or otherwise unreplayable. Check `replayDedupe.skippedLiveParsedEvents` and `replayDedupe.fallbackLiveParsedEvents` before interpreting a difference between captured event count and replayed event count as data loss.
 
-Newer live exports can also include `decoded_message` diagnostics and standard events with `source: "client_decode"`. These come from the page's own `net.MessageWrapper.decodeMessage` return value or from a read-only observation of `Laya.EventDispatcher.event` after the original page decode has already happened. The helper stores only sanitized decoded-message metadata and standardized visible fields; it does not modify the decoded object, the event payload, or the WebSocket payload.
+Newer live exports can also include `decoded_message` diagnostics and standard events with `source: "client_decode"`. These come from the page's own `net.MessageWrapper.decodeMessage` return value or from a read-only observation of `Laya.EventDispatcher.event` after the original page decode has already happened. Current Unity WebGL exports may instead show `captureMetadata.helperDiagnostics.runtime.unityWebGL: true`, raw `ActionPrototype` names, and no decoded client events yet. The helper stores only sanitized decoded-message metadata and standardized visible fields; it does not modify the decoded object, the event payload, or the WebSocket payload.
 
 New capture exports include `eventId` on helper events. Replay uses `replayDedupe.ordering: "eventId"` when every event has one; older captures without `eventId` use `newestFirstFallback`.
 
@@ -175,6 +175,7 @@ Share the replay output plus the capture JSON when possible. If the capture is t
 
 - `captureSummary`
 - `captureMetadata`
+- `captureMetadata.helperDiagnostics.runtime`
 - `topMethods`
 - `topActions`
 - `diagnostics`

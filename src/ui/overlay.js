@@ -308,6 +308,22 @@ function formatHookDiagnostics(hooks = {}) {
   return parts.join(" / ");
 }
 
+function formatRuntimeDiagnostics(runtime = {}) {
+  const scriptName = runtime.unityBuildScript
+    ? String(runtime.unityBuildScript).split("/").filter(Boolean).at(-1)
+    : "";
+  const parts = [
+    `Unity WebGL ${runtime.unityWebGL ? "detected" : "not detected"}`,
+    scriptName ? `build ${scriptName}` : null,
+    `unityInstance ${runtime.hasUnityInstance ? "ok" : "missing"}`,
+    `Module ${runtime.hasUnityModule ? "ok" : "missing"}`,
+    `heap ${runtime.heapU8 ? "ok" : "missing"}`,
+    `global net ${runtime.netMessageWrapperGlobal ? "ok" : "missing"}`,
+    `global Laya ${runtime.layaGlobal ? "ok" : "missing"}`
+  ].filter(Boolean);
+  return parts.join(" / ");
+}
+
 function formatEventBufferDiagnostics(eventBuffer = {}) {
   if (!eventBuffer || typeof eventBuffer !== "object") return "Event buffer: unavailable";
   const retained = eventBuffer.retainedEvents ?? "-";
@@ -319,7 +335,21 @@ function formatEventBufferDiagnostics(eventBuffer = {}) {
   return `Event buffer: retained ${retained}/${total} / max ${maxEvents} / dropped ${dropped} / ids ${oldest}-${newest}`;
 }
 
-function captureHealth(adapter, summary, installDiagnostics = {}) {
+function stateHasTableData(state = {}) {
+  return Boolean(
+    state.hand?.length
+    || state.drawnTile
+    || state.discards?.some((tiles) => tiles.length)
+    || state.melds?.some((melds) => melds.length)
+    || state.doraIndicators?.length
+    || state.visibleTiles?.length
+    || state.chang !== null && state.chang !== undefined
+    || state.ju !== null && state.ju !== undefined
+    || state.round !== null && state.round !== undefined
+  );
+}
+
+function captureHealth(adapter, summary, installDiagnostics = {}, state = {}) {
   if (adapter.paused) {
     return "Paused. Resume capture before sampling live traffic.";
   }
@@ -343,6 +373,12 @@ function captureHealth(adapter, summary, installDiagnostics = {}) {
   }
   if (summary.parsed === 0) {
     return "Liqi envelopes captured, but no standard game events parsed yet.";
+  }
+  if (!stateHasTableData(state)) {
+    if (installDiagnostics.runtime?.unityWebGL) {
+      return "Unity WebGL Action names are captured, but action payload fields are still encoded or unmapped. State restoration needs a Unity runtime hook or payload decoder.";
+    }
+    return "Standard game event names parsed, but no usable gameState fields updated yet. Inspect action payload field diagnostics.";
   }
   return "Standard game events parsed. Compare gameState with the visible table.";
 }
@@ -814,10 +850,11 @@ export class Overlay {
           <label class="mh-muted">Binary sample bytes <input class="mh-input" data-role="binary-sample-bytes" type="number" min="16" max="4096" value="${escapeHtml(this.binarySampleBytes ?? installDiagnostics.binarySampleBytes ?? DEFAULT_BINARY_SAMPLE_BYTES)}"></label>
           <div class="mh-muted" data-role="install-diagnostics">Install: ${installDiagnostics.installed ? "installed" : "not installed"}${helperVersion ? ` / v${escapeHtml(helperVersion)}` : ""} / capture ${installDiagnostics.paused || this.adapter.paused ? "paused" : "running"} / attempts ${escapeHtml(installDiagnostics.installAttempts ?? "-")} / WebSocket ${installDiagnostics.webSocketAvailable ? "available" : "missing"} / sockets ${escapeHtml(installDiagnostics.socketsCreated ?? 0)} / sample ${escapeHtml(installDiagnostics.binarySampleBytes ?? "-")} bytes / client decode ${installDiagnostics.hooks?.decodedMessage ? "hooked" : "waiting"} / page dispatch ${installDiagnostics.hooks?.decodedDispatcher ? "hooked" : "waiting"}</div>
           <div class="mh-muted" data-role="hook-diagnostics">Hooks: ${escapeHtml(formatHookDiagnostics(installDiagnostics.hooks))}</div>
+          <div class="mh-muted" data-role="runtime-diagnostics">Runtime: ${escapeHtml(formatRuntimeDiagnostics(installDiagnostics.runtime))}</div>
           <div class="${Number(installDiagnostics.eventBuffer?.droppedBeforeRetained || 0) > 0 ? "mh-warning" : "mh-muted"}" data-role="event-buffer-diagnostics">${escapeHtml(formatEventBufferDiagnostics(installDiagnostics.eventBuffer))}</div>
           ${installDiagnostics.recentSocketUrls?.length ? `<div class="mh-muted">Recent sockets: ${escapeHtml(installDiagnostics.recentSocketUrls.join(" / "))}</div>` : ""}
           ${installDiagnostics.installFailureReason ? `<div class="mh-warning">${escapeHtml(installDiagnostics.installFailureReason)}</div>` : ""}
-          <div class="mh-muted" data-role="capture-health">Capture health: ${escapeHtml(captureHealth(this.adapter, debugSummary, installDiagnostics))}</div>
+          <div class="mh-muted" data-role="capture-health">Capture health: ${escapeHtml(captureHealth(this.adapter, debugSummary, installDiagnostics, state))}</div>
           ${renderLiveMvpGate(liveMvpGate)}
           ${renderLiveRealPagePreflight(liveRealPagePreflight)}
           <div class="mh-muted">Capture summary: raw ${debugSummary.raw} / inbound ${debugSummary.inbound} / outbound ${debugSummary.outbound} / parsed ${debugSummary.parsed} / errors ${debugSummary.captureErrors} / diagnostics ${debugSummary.diagnostics} / envelopes ${debugSummary.envelopes} / truncated ${debugSummary.truncated} / methods ${debugSummary.methods} / actions ${debugSummary.actions}</div>
