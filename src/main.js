@@ -5,7 +5,7 @@ import { parseTiles } from "./core/tile.js";
 import { Overlay } from "./ui/overlay.js";
 
 const STORAGE_KEY = "majsoul-helper-config";
-const HELPER_VERSION = "0.2.3";
+const HELPER_VERSION = "0.2.4";
 
 function readConfig() {
   try {

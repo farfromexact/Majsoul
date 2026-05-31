@@ -9,6 +9,7 @@ const originalLaya = globalThis.Laya;
 const originalDocument = globalThis.document;
 const originalUnityInstance = globalThis.unityInstance;
 const originalGameInstance = globalThis.gameInstance;
+const originalCreateUnityInstance = globalThis.createUnityInstance;
 
 class TestCustomEvent extends Event {
   constructor(type, options = {}) {
@@ -167,6 +168,11 @@ describe("MajsoulAdapter", () => {
       delete globalThis.gameInstance;
     } else {
       globalThis.gameInstance = originalGameInstance;
+    }
+    if (originalCreateUnityInstance === undefined) {
+      delete globalThis.createUnityInstance;
+    } else {
+      globalThis.createUnityInstance = originalCreateUnityInstance;
     }
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -1015,10 +1021,117 @@ describe("MajsoulAdapter", () => {
       hasUnityModule: true,
       heapU8: true,
       sendMessageAvailable: true,
+      createUnityInstanceHook: false,
       netMessageWrapperGlobal: false,
       layaGlobal: false
     });
     expect(JSON.stringify(adapter.exportCapture().helperDiagnostics.runtime)).not.toContain("token=secret");
+  });
+
+  it("observes Unity WebGL instances created through createUnityInstance", async () => {
+    globalThis.WebSocket = FakeWebSocket;
+    globalThis.CustomEvent = TestCustomEvent;
+    const unityInstance = {
+      Module: {
+        HEAPU8: new Uint8Array([1, 2, 3]),
+        SendMessage() {}
+      },
+      SendMessage() {}
+    };
+    const originalCreate = vi.fn(() => Promise.resolve(unityInstance));
+    globalThis.createUnityInstance = originalCreate;
+    const adapter = new MajsoulAdapter();
+    const configEvents = [];
+    adapter.addEventListener("majsoul-helper:config", (event) => configEvents.push(event.detail));
+
+    adapter.install();
+    const promise = globalThis.createUnityInstance("canvas", { codeUrl: "Build/game.wasm.gz" });
+    await promise;
+    await waitFor(() => adapter.getInstallDiagnostics().runtime.createUnityInstanceResolved);
+
+    expect(originalCreate).toHaveBeenCalledWith("canvas", { codeUrl: "Build/game.wasm.gz" });
+    expect(adapter.getInstallDiagnostics().runtime).toMatchObject({
+      hasUnityInstance: true,
+      hasUnityModule: true,
+      heapU8: true,
+      sendMessageAvailable: true,
+      createUnityInstanceHook: true,
+      createUnityInstanceMode: "createUnityInstance",
+      createUnityInstanceCalls: 1,
+      createUnityInstanceResolved: true,
+      createUnityInstanceFailureReason: ""
+    });
+    expect(configEvents.some((event) => event.runtime?.createUnityInstanceResolved)).toBe(true);
+  });
+
+  it("uses the Unity loader script load event to observe createUnityInstance before the inline boot call", async () => {
+    globalThis.WebSocket = FakeWebSocket;
+    globalThis.CustomEvent = TestCustomEvent;
+    const documentTarget = new EventTarget();
+    documentTarget.scripts = [];
+    documentTarget.querySelector = () => null;
+    globalThis.document = documentTarget;
+    const unityInstance = {
+      Module: { HEAPU8: new Uint8Array([1]) },
+      SendMessage() {}
+    };
+    const originalCreate = vi.fn(() => Promise.resolve(unityInstance));
+    const adapter = new MajsoulAdapter();
+
+    adapter.install();
+    expect(adapter.getInstallDiagnostics().runtime).toMatchObject({
+      createUnityInstanceLoadObserver: true,
+      createUnityInstanceHook: false
+    });
+
+    globalThis.createUnityInstance = originalCreate;
+    const loadEvent = new Event("load");
+    Object.defineProperty(loadEvent, "target", {
+      configurable: true,
+      value: { src: "https://game.maj-soul.com/1/Build/chs_t-WebGL-release-4.0.43(43).loader.js" }
+    });
+    documentTarget.dispatchEvent(loadEvent);
+    const promise = globalThis.createUnityInstance("canvas", { codeUrl: "Build/game.wasm.gz" });
+    await promise;
+    await waitFor(() => adapter.getInstallDiagnostics().runtime.createUnityInstanceResolved);
+
+    expect(originalCreate).toHaveBeenCalledWith("canvas", { codeUrl: "Build/game.wasm.gz" });
+    expect(adapter.getInstallDiagnostics().runtime).toMatchObject({
+      createUnityInstanceLoadObserver: true,
+      createUnityInstanceLoadEvents: 1,
+      createUnityInstanceLastScript: "https://game.maj-soul.com/1/Build/chs_t-WebGL-release-4.0.43(43).loader.js",
+      createUnityInstanceHook: true,
+      createUnityInstanceMode: "createUnityInstance",
+      createUnityInstanceCalls: 1,
+      createUnityInstanceResolved: true,
+      hasUnityInstance: true,
+      hasUnityModule: true
+    });
+  });
+
+  it("stops retrying old JS/Laya decoded hooks once Unity WebGL is detected", () => {
+    vi.useFakeTimers();
+    globalThis.WebSocket = FakeWebSocket;
+    globalThis.CustomEvent = TestCustomEvent;
+    delete globalThis.net;
+    delete globalThis.Laya;
+    const documentTarget = new EventTarget();
+    documentTarget.scripts = [{ src: "https://game.maj-soul.com/1/Build/chs_t-WebGL-release-4.0.43(43).loader.js" }];
+    documentTarget.querySelector = () => null;
+    globalThis.document = documentTarget;
+    const adapter = new MajsoulAdapter();
+
+    adapter.install();
+    vi.advanceTimersByTime(250);
+
+    expect(adapter.getInstallDiagnostics().hooks).toMatchObject({
+      decodedMessage: false,
+      decodedMessageMode: "not-applicable-unity",
+      decodedMessageFailureReason: "Unity WebGL runtime detected; net.MessageWrapper is not expected on this build.",
+      decodedDispatcher: false,
+      decodedDispatcherMode: "not-applicable-unity",
+      decodedDispatcherFailureReason: "Unity WebGL runtime detected; Laya.EventDispatcher is not expected on this build."
+    });
   });
 
   it("uses a larger bounded default binary capture sample", () => {

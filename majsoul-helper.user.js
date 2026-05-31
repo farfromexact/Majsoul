@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.2.3
+// @version      0.2.4
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -936,6 +936,20 @@ var MajsoulHelperBundle = (() => {
       decodedDispatcherFailureReason: ""
     };
   }
+  function createUnityRuntimeState() {
+    return {
+      instance: null,
+      createUnityInstanceLoadObserver: false,
+      createUnityInstanceLoadEvents: 0,
+      createUnityInstanceLastScript: "",
+      createUnityInstanceHook: false,
+      createUnityInstanceMode: "not-installed",
+      createUnityInstanceAttempts: 0,
+      createUnityInstanceCalls: 0,
+      createUnityInstanceResolved: false,
+      createUnityInstanceFailureReason: ""
+    };
+  }
   function copyConstructorStatics(target, source) {
     const result = { copied: 0, failed: [] };
     const skippedKeys = /* @__PURE__ */ new Set(["prototype", "length", "name"]);
@@ -992,8 +1006,8 @@ var MajsoulHelperBundle = (() => {
       sanitizedUrl: `${origin}${pathname}`
     };
   }
-  function getRuntimeDiagnostics() {
-    const unityInstance = globalThis.unityInstance || globalThis.gameInstance || null;
+  function getRuntimeDiagnostics(unityRuntime = {}) {
+    const unityInstance = unityRuntime.instance || globalThis.unityInstance || globalThis.gameInstance || null;
     const unityModule = unityInstance?.Module || null;
     const unityBuildScript = getScriptSources().find((src) => /WebGL-release|\.loader\.js|\.framework\.js|\.wasm/i.test(src)) || "";
     const unityCanvas = safeQuerySelector("#unity-canvas") || safeQuerySelector("canvas");
@@ -1004,6 +1018,15 @@ var MajsoulHelperBundle = (() => {
       hasUnityModule: Boolean(unityModule),
       heapU8: Boolean(unityModule?.HEAPU8),
       sendMessageAvailable: Boolean(unityInstance?.SendMessage || unityModule?.SendMessage),
+      createUnityInstanceLoadObserver: Boolean(unityRuntime.createUnityInstanceLoadObserver),
+      createUnityInstanceLoadEvents: unityRuntime.createUnityInstanceLoadEvents ?? 0,
+      createUnityInstanceLastScript: unityRuntime.createUnityInstanceLastScript || "",
+      createUnityInstanceHook: Boolean(unityRuntime.createUnityInstanceHook),
+      createUnityInstanceMode: unityRuntime.createUnityInstanceMode || "not-installed",
+      createUnityInstanceAttempts: unityRuntime.createUnityInstanceAttempts ?? 0,
+      createUnityInstanceCalls: unityRuntime.createUnityInstanceCalls ?? 0,
+      createUnityInstanceResolved: Boolean(unityRuntime.createUnityInstanceResolved),
+      createUnityInstanceFailureReason: unityRuntime.createUnityInstanceFailureReason || "",
       netMessageWrapperGlobal: typeof globalThis.net?.MessageWrapper?.decodeMessage === "function",
       layaGlobal: Boolean(globalThis.Laya?.EventDispatcher)
     };
@@ -1014,6 +1037,9 @@ var MajsoulHelperBundle = (() => {
     } catch {
       return [];
     }
+  }
+  function isUnityLoaderScript(src = "") {
+    return /(?:unity|webgl|\.loader\.js|\.framework\.js|\.wasm)/i.test(String(src || ""));
   }
   function safeQuerySelector(selector) {
     try {
@@ -1236,6 +1262,7 @@ var MajsoulHelperBundle = (() => {
       this.restoreFns = [];
       this.socketRecords = [];
       this.hookDiagnostics = createHookDiagnostics();
+      this.unityRuntime = createUnityRuntimeState();
       this.nextEventId = 1;
     }
     install() {
@@ -1418,6 +1445,9 @@ var MajsoulHelperBundle = (() => {
         this.startDecodedMessageHookRetry();
         this.installDecodedDispatcherHook();
         this.startDecodedDispatcherHookRetry();
+        this.installUnityScriptLoadObserver();
+        this.installUnityInstanceHook();
+        this.startUnityInstanceHookRetry();
         this.dispatchEvent(new CustomEvent("majsoul-helper:install", { detail: this.getInstallDiagnostics() }));
         return true;
       } catch (error) {
@@ -1442,6 +1472,111 @@ var MajsoulHelperBundle = (() => {
       this.installed = false;
       this.installedAt = null;
       this.hookDiagnostics = createHookDiagnostics();
+      this.unityRuntime = createUnityRuntimeState();
+    }
+    installUnityScriptLoadObserver() {
+      const target = globalThis.document || globalThis;
+      if (this.unityRuntime.createUnityInstanceLoadObserver || typeof target?.addEventListener !== "function") return false;
+      const adapter = this;
+      function onScriptLoad(event) {
+        const script = event?.target;
+        const src = String(script?.src || "");
+        if (!isUnityLoaderScript(src)) return;
+        adapter.unityRuntime.createUnityInstanceLoadEvents += 1;
+        adapter.unityRuntime.createUnityInstanceLastScript = sanitizeUrl(src);
+        if (!adapter.unityRuntime.createUnityInstanceHook) {
+          adapter.installUnityInstanceHook();
+        }
+        adapter.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: adapter.getInstallDiagnostics() }));
+      }
+      target.addEventListener("load", onScriptLoad, true);
+      this.restoreFns.push(() => {
+        target.removeEventListener?.("load", onScriptLoad, true);
+      });
+      this.unityRuntime.createUnityInstanceLoadObserver = true;
+      if (this.unityRuntime.createUnityInstanceMode === "not-installed") {
+        this.unityRuntime.createUnityInstanceMode = "script-load-observer";
+      }
+      return true;
+    }
+    installUnityInstanceHook() {
+      this.unityRuntime.createUnityInstanceAttempts += 1;
+      const originalCreateUnityInstance = globalThis.createUnityInstance;
+      if (typeof originalCreateUnityInstance !== "function") {
+        this.unityRuntime.createUnityInstanceFailureReason = "createUnityInstance is not available yet.";
+        return false;
+      }
+      if (originalCreateUnityInstance.__majsoulHelperWrapped) {
+        this.unityRuntime.createUnityInstanceHook = true;
+        this.unityRuntime.createUnityInstanceMode = "already-wrapped";
+        this.unityRuntime.createUnityInstanceFailureReason = "";
+        return true;
+      }
+      const adapter = this;
+      function wrappedCreateUnityInstance(...args) {
+        adapter.unityRuntime.createUnityInstanceCalls += 1;
+        let result;
+        try {
+          result = originalCreateUnityInstance.apply(this, args);
+        } catch (error) {
+          adapter.unityRuntime.createUnityInstanceFailureReason = `createUnityInstance threw: ${safeParseError(error)}`;
+          adapter.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: adapter.getInstallDiagnostics() }));
+          throw error;
+        }
+        adapter.observeUnityInstanceResult(result);
+        return result;
+      }
+      Object.defineProperty(wrappedCreateUnityInstance, "__majsoulHelperWrapped", {
+        configurable: true,
+        value: true
+      });
+      try {
+        globalThis.createUnityInstance = wrappedCreateUnityInstance;
+        this.restoreFns.push(() => {
+          globalThis.createUnityInstance = originalCreateUnityInstance;
+        });
+        this.unityRuntime.createUnityInstanceHook = true;
+        this.unityRuntime.createUnityInstanceMode = "createUnityInstance";
+        this.unityRuntime.createUnityInstanceFailureReason = "";
+        this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.getInstallDiagnostics() }));
+        return true;
+      } catch (error) {
+        this.unityRuntime.createUnityInstanceHook = false;
+        this.unityRuntime.createUnityInstanceMode = "failed";
+        this.unityRuntime.createUnityInstanceFailureReason = safeParseError(error);
+        return false;
+      }
+    }
+    startUnityInstanceHookRetry() {
+      if (this.unityRuntime.createUnityInstanceHook || typeof globalThis.setInterval !== "function") return;
+      const timer = globalThis.setInterval(() => {
+        if (this.unityRuntime.createUnityInstanceHook || this.installUnityInstanceHook()) {
+          globalThis.clearInterval(timer);
+        }
+      }, 250);
+      if (typeof timer?.unref === "function") timer.unref();
+      this.restoreFns.push(() => {
+        globalThis.clearInterval(timer);
+      });
+    }
+    observeUnityInstanceResult(result) {
+      if (result && typeof result.then === "function") {
+        result.then((instance) => {
+          this.recordUnityInstance(instance);
+        }).catch((error) => {
+          this.unityRuntime.createUnityInstanceFailureReason = `createUnityInstance rejected: ${safeParseError(error)}`;
+          this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.getInstallDiagnostics() }));
+        });
+        return;
+      }
+      this.recordUnityInstance(result);
+    }
+    recordUnityInstance(instance) {
+      if (!instance || typeof instance !== "object") return;
+      this.unityRuntime.instance = instance;
+      this.unityRuntime.createUnityInstanceResolved = true;
+      this.unityRuntime.createUnityInstanceFailureReason = "";
+      this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.getInstallDiagnostics() }));
     }
     installDecodedMessageHook() {
       this.hookDiagnostics.decodedMessageAttempts += 1;
@@ -1506,6 +1641,10 @@ var MajsoulHelperBundle = (() => {
     startDecodedMessageHookRetry() {
       if (this.hookDiagnostics.decodedMessage || typeof globalThis.setInterval !== "function") return;
       const timer = globalThis.setInterval(() => {
+        if (this.markDecodedMessageNotApplicableForUnity()) {
+          globalThis.clearInterval(timer);
+          return;
+        }
         if (this.hookDiagnostics.decodedMessage || this.installDecodedMessageHook()) {
           globalThis.clearInterval(timer);
         }
@@ -1514,6 +1653,14 @@ var MajsoulHelperBundle = (() => {
       this.restoreFns.push(() => {
         globalThis.clearInterval(timer);
       });
+    }
+    markDecodedMessageNotApplicableForUnity() {
+      const runtime = getRuntimeDiagnostics(this.unityRuntime);
+      if (!runtime.unityWebGL || runtime.netMessageWrapperGlobal || this.hookDiagnostics.decodedMessage) return false;
+      this.hookDiagnostics.decodedMessageMode = "not-applicable-unity";
+      this.hookDiagnostics.decodedMessageFailureReason = "Unity WebGL runtime detected; net.MessageWrapper is not expected on this build.";
+      this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.getInstallDiagnostics() }));
+      return true;
     }
     installDecodedDispatcherHook() {
       this.hookDiagnostics.decodedDispatcherAttempts += 1;
@@ -1580,6 +1727,10 @@ var MajsoulHelperBundle = (() => {
     startDecodedDispatcherHookRetry() {
       if (this.hookDiagnostics.decodedDispatcher || typeof globalThis.setInterval !== "function") return;
       const timer = globalThis.setInterval(() => {
+        if (this.markDecodedDispatcherNotApplicableForUnity()) {
+          globalThis.clearInterval(timer);
+          return;
+        }
         if (this.hookDiagnostics.decodedDispatcher || this.installDecodedDispatcherHook()) {
           globalThis.clearInterval(timer);
         }
@@ -1588,6 +1739,14 @@ var MajsoulHelperBundle = (() => {
       this.restoreFns.push(() => {
         globalThis.clearInterval(timer);
       });
+    }
+    markDecodedDispatcherNotApplicableForUnity() {
+      const runtime = getRuntimeDiagnostics(this.unityRuntime);
+      if (!runtime.unityWebGL || runtime.layaGlobal || this.hookDiagnostics.decodedDispatcher) return false;
+      this.hookDiagnostics.decodedDispatcherMode = "not-applicable-unity";
+      this.hookDiagnostics.decodedDispatcherFailureReason = "Unity WebGL runtime detected; Laya.EventDispatcher is not expected on this build.";
+      this.dispatchEvent(new CustomEvent("majsoul-helper:config", { detail: this.getInstallDiagnostics() }));
+      return true;
     }
     setPaused(paused) {
       this.paused = Boolean(paused);
@@ -1773,7 +1932,7 @@ var MajsoulHelperBundle = (() => {
         webSocketAvailable: typeof WebSocket !== "undefined",
         paused: this.paused,
         hooks: { ...this.hookDiagnostics },
-        runtime: getRuntimeDiagnostics(),
+        runtime: getRuntimeDiagnostics(this.unityRuntime),
         socketsCreated: this.socketRecords.length,
         recentSocketUrls: [...new Set(this.socketRecords.map((record) => record.url).filter(Boolean))].slice(0, 5),
         maxEvents: this.maxEvents,
@@ -3091,6 +3250,11 @@ var MajsoulHelperBundle = (() => {
     const parts = [
       `Unity WebGL ${runtime.unityWebGL ? "detected" : "not detected"}`,
       scriptName ? `build ${scriptName}` : null,
+      `loader observer ${runtime.createUnityInstanceLoadObserver ? "on" : "off"}`,
+      `loader loads ${runtime.createUnityInstanceLoadEvents ?? 0}`,
+      `createUnityInstance ${runtime.createUnityInstanceHook ? "hooked" : "waiting"} (${runtime.createUnityInstanceMode || "unknown"})`,
+      `calls ${runtime.createUnityInstanceCalls ?? 0}`,
+      `resolved ${runtime.createUnityInstanceResolved ? "yes" : "no"}`,
       `unityInstance ${runtime.hasUnityInstance ? "ok" : "missing"}`,
       `Module ${runtime.hasUnityModule ? "ok" : "missing"}`,
       `heap ${runtime.heapU8 ? "ok" : "missing"}`,
@@ -3881,7 +4045,7 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
-  var HELPER_VERSION = "0.2.3";
+  var HELPER_VERSION = "0.2.4";
   function readConfig2() {
     try {
       return JSON.parse(window.localStorage.getItem(STORAGE_KEY2) || "{}");

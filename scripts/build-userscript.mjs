@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { writeFile } from "node:fs/promises";
 
-const version = "0.2.3";
+const version = "0.2.4";
 
 const banner = `// ==UserScript==
 // @name         Majsoul Helper MVP

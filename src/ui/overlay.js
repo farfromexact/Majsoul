@@ -321,6 +321,11 @@ function formatRuntimeDiagnostics(runtime = {}) {
   const parts = [
     `Unity WebGL ${runtime.unityWebGL ? "detected" : "not detected"}`,
     scriptName ? `build ${scriptName}` : null,
+    `loader observer ${runtime.createUnityInstanceLoadObserver ? "on" : "off"}`,
+    `loader loads ${runtime.createUnityInstanceLoadEvents ?? 0}`,
+    `createUnityInstance ${runtime.createUnityInstanceHook ? "hooked" : "waiting"} (${runtime.createUnityInstanceMode || "unknown"})`,
+    `calls ${runtime.createUnityInstanceCalls ?? 0}`,
+    `resolved ${runtime.createUnityInstanceResolved ? "yes" : "no"}`,
     `unityInstance ${runtime.hasUnityInstance ? "ok" : "missing"}`,
     `Module ${runtime.hasUnityModule ? "ok" : "missing"}`,
     `heap ${runtime.heapU8 ? "ok" : "missing"}`,
