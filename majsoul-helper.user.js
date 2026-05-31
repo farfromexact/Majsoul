@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Majsoul Helper MVP
 // @namespace    https://local.majsoul-helper/
-// @version      0.2.0
+// @version      0.2.1
 // @description  Visible-state/debug helper for Mahjong Soul. No auto discard, no click automation, no message mutation.
 // @match        *://*.mahjongsoul.com/*
 // @match        *://mahjongsoul.game.yo-star.com/*
@@ -3691,7 +3691,7 @@ var MajsoulHelperBundle = (() => {
 
   // src/main.js
   var STORAGE_KEY2 = "majsoul-helper-config";
-  var HELPER_VERSION = "0.2.0";
+  var HELPER_VERSION = "0.2.1";
   function readConfig2() {
     try {
       return JSON.parse(window.localStorage.getItem(STORAGE_KEY2) || "{}");
@@ -3700,7 +3700,19 @@ var MajsoulHelperBundle = (() => {
     }
   }
   function boot() {
-    if (window.__majsoulHelper?.version) return window.__majsoulHelper;
+    const existingHelper = window.__majsoulHelper;
+    if (existingHelper?.version === HELPER_VERSION) return existingHelper;
+    if (existingHelper?.version) {
+      try {
+        existingHelper.adapter?.uninstall?.();
+      } catch {
+      }
+      try {
+        existingHelper.overlay?.root?.remove?.();
+        document.getElementById("majsoul-helper-overlay")?.remove?.();
+      } catch {
+      }
+    }
     const config = readConfig2();
     const adapter = new MajsoulAdapter({
       helperVersion: HELPER_VERSION,

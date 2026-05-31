@@ -37,8 +37,8 @@ describe("built userscript runtime", () => {
     window.eval(userscript);
 
     expect(window.__majsoulHelper).toBeTruthy();
-    expect(window.__majsoulHelper.version).toBe("0.2.0");
-    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.0");
+    expect(window.__majsoulHelper.version).toBe("0.2.1");
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.1");
     expect(window.__majsoulHelper.adapter.getInstallDiagnostics().maxEvents).toBe(500);
     expect(window.__majsoulHelper.adapter.getInstallDiagnostics().binarySampleBytes).toBe(2048);
     expect(document.querySelector("#majsoul-helper-overlay")).toBeTruthy();
@@ -72,6 +72,27 @@ describe("built userscript runtime", () => {
     const socket = new window.WebSocket("wss://example.test/socket");
     socket.send("hello");
     expect(helper.adapter.getRecentEvents()).toHaveLength(1);
+  });
+
+  it("replaces an older helper singleton when an updated userscript runs on the same page", () => {
+    const oldRoot = document.createElement("div");
+    oldRoot.id = "majsoul-helper-overlay";
+    document.documentElement.appendChild(oldRoot);
+    const oldAdapter = { uninstall: vi.fn() };
+    window.__majsoulHelper = {
+      version: "0.1.0",
+      adapter: oldAdapter,
+      overlay: { root: oldRoot }
+    };
+    const userscript = readFileSync("majsoul-helper.user.js", "utf8");
+
+    window.eval(userscript);
+
+    expect(oldAdapter.uninstall).toHaveBeenCalledTimes(1);
+    expect(window.__majsoulHelper.version).toBe("0.2.1");
+    expect(window.__majsoulHelper.adapter).not.toBe(oldAdapter);
+    expect(document.querySelectorAll("#majsoul-helper-overlay")).toHaveLength(1);
+    expect(document.querySelector(".mh-title").textContent).toContain("v0.2.1");
   });
 
   it("sets the helper singleton before the DOM is ready", () => {

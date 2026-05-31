@@ -5,7 +5,7 @@ import { parseTiles } from "./core/tile.js";
 import { Overlay } from "./ui/overlay.js";
 
 const STORAGE_KEY = "majsoul-helper-config";
-const HELPER_VERSION = "0.2.0";
+const HELPER_VERSION = "0.2.1";
 
 function readConfig() {
   try {
@@ -16,7 +16,21 @@ function readConfig() {
 }
 
 function boot() {
-  if (window.__majsoulHelper?.version) return window.__majsoulHelper;
+  const existingHelper = window.__majsoulHelper;
+  if (existingHelper?.version === HELPER_VERSION) return existingHelper;
+  if (existingHelper?.version) {
+    try {
+      existingHelper.adapter?.uninstall?.();
+    } catch {
+      // Best-effort upgrade cleanup; the new adapter will install below.
+    }
+    try {
+      existingHelper.overlay?.root?.remove?.();
+      document.getElementById("majsoul-helper-overlay")?.remove?.();
+    } catch {
+      // DOM cleanup should not block replacing an older helper singleton.
+    }
+  }
   const config = readConfig();
   const adapter = new MajsoulAdapter({
     helperVersion: HELPER_VERSION,

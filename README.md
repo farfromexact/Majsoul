@@ -91,11 +91,11 @@ The request/response id is decoded as little-endian, matching the public majsoul
 
 ## Capturing Real Page Samples
 
-1. Install `majsoul-helper.user.js` in Tampermonkey and confirm the overlay title shows `Majsoul Helper v0.2.0`.
+1. Install `majsoul-helper.user.js` in Tampermonkey and confirm the overlay title shows `Majsoul Helper v0.2.1`.
 2. Open Mahjong Soul and enter a non-ranked or training-friendly room.
 3. Keep realtime advice off unless explicitly testing it.
 4. Use the overlay debug panel to confirm `raw_message` entries are appearing.
-   The `Install` line should read `installed`, `v0.2.0`, and on the current production client either `client decode` or `page dispatch` should become `hooked` after the game code loads. If both remain `waiting` after joining a table and reloading once, export the capture anyway but expect state restoration to remain incomplete until the runtime hook point is mapped. If earlier replay output reported truncated samples, raise `Binary sample bytes` and collect again.
+   The `Install` line should read `installed`, `v0.2.1`, and on the current production client either `client decode` or `page dispatch` should become `hooked` after the game code loads. If both remain `waiting` after joining a table and reloading once, export the capture anyway but expect state restoration to remain incomplete until the runtime hook point is mapped. If earlier replay output reported truncated samples, raise `Binary sample bytes` and collect again.
 5. Click `Download capture` for a local JSON file, or `Copy capture` if you prefer the clipboard path.
 6. Import the downloaded file with `npm run import-capture -- path/to/majsoul-helper-capture.json`, or run `npm run import-capture` to use the newest matching file in your Downloads folder.
 7. Run `npm run capture-doctor -- captures/capture-real.json` for a compact first diagnosis, then run `npm run real-page-gate` for the strict final real-page check.
